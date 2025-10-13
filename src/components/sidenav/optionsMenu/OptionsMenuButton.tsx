@@ -53,6 +53,15 @@ export function OptionsMenuButton(){
     }
   }
 
+  async function joinServer(){
+    console.log("joining server")
+    const ticket = '';
+    const result = await tryCatch(invoke("invite", { ticket }));
+    if(!result.error){
+      console.log("RESULT DATA: ", result.data)
+    }
+  }
+
   const buttonStyle = `flex gap-2 p-2 place-items-center h-12 
   bg-deep-purple-300 rounded-lg hover:bg-deep-purple-400 select-none`
 
@@ -67,12 +76,17 @@ export function OptionsMenuButton(){
         </button>
         <div ref={optionsMenuRef} className={"absolute flex flex-col p-2 gap-1 left-[75px] w-32 bg-off-black-400 border border-off-black-300 rounded-2xl z-20 " + optionsMenuVisibility}>
           <button className={buttonStyle}
-                  onClick={() => {setShowCreateServerModal(true); setOptionsMenuVisibility('invisible');  }}
+                  onClick={() => {setShowCreateServerModal(true); setOptionsMenuVisibility('invisible');}}
           >
             <img src={add_cropped} height={25} width={25}></img>
             <div className="font-semibold">Create</div>
           </button>
-          <button className={buttonStyle}></button>
+          <button className={buttonStyle}
+                  onClick={joinServer}
+          >
+            <img src={add_cropped} height={25} width={25}></img>
+            <div className="font-semibold">Join</div>
+          </button>
           <button className={buttonStyle}
             // onClick={() => {setCurrentScreen('Settings'); setServerId(''); setOptionsMenuVisibility('invisible')}}
           >

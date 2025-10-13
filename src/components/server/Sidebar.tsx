@@ -3,6 +3,8 @@ import carrot from "../../assets/icons/carrot.svg"
 import { TextChannelButton } from "./TextChannelButton";
 import { VoiceChannelButton } from "./VoiceChannelButton";
 import { useGlobalStore } from "../../state-management/globalStore";
+import { tryCatch } from "../../tryCatch";
+import { invoke } from "@tauri-apps/api/core";
 
 export function SideBar(){
 //   const serverName = useServerStore((server) => server.name)
@@ -45,6 +47,14 @@ console.log("current screen inside sidebar: ", currentScreen);
 //     voiceChannelItems.push(<UpdatedVoiceChannelButton key={voiceChannel.chatId} name={voiceChannel.name} chatId={voiceChannel.chatId}/>)
 //     // Use `key` and `value`
 //   }
+
+  async function getInviteCode(){
+    console.log("getting invite code for", currentScreen?.metadata.id)
+    const result = await tryCatch(invoke("invite", { id: currentScreen?.metadata.id }));
+    if(!result.error){
+      console.log("RESULT DATA: ", result.data)
+    }
+  }
 
   let textChannelArrow = ''
   let voiceChannelArrow = ''
@@ -138,6 +148,7 @@ console.log("current screen inside sidebar: ", currentScreen);
             // ref={serverNameButtonRef}
             className="flex justify-between w-full h-14 z-10 border-b border-off-black-700 place-items-center px-2 shadow-md shadow-off-black-700 text-xl font-light"
             // onClick={() => setShowServerMenu(!showServerMenu)}
+            onClick={getInviteCode}
             >
             {currentScreen?.metadata.name}
             {/* {

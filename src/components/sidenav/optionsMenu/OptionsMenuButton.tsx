@@ -56,7 +56,7 @@ export function OptionsMenuButton(){
   async function joinServer(){
     console.log("joining server")
     const ticket = '';
-    const result = await tryCatch(invoke("invite", { ticket }));
+    const result = await tryCatch(invoke("join_server", { ticket }));
     if(!result.error){
       console.log("RESULT DATA: ", result.data)
     }

@@ -1,0 +1,54 @@
+import { useEffect, useState } from "react";
+import { ServerButton } from "./ServerButton";
+import messageBubble from "../../assets/icons/message_bubble.svg"
+import { OptionsMenuButton } from "./optionsMenu/OptionsMenuButton";
+import { invoke } from "@tauri-apps/api/core";
+import { tryCatch } from "../../tryCatch";
+import { ServerMetadata, ServerType } from "../../types/serverTypes";
+
+export function SideNav(){
+  const [serverList, setServerList] = useState<any>([]);
+  const [serverListLength, setServerListLength] = useState(0);
+
+  useEffect(() => {
+    fetchServers();
+  }, [serverListLength])
+
+  async function fetchServers(){
+    console.log("getting all servers")
+    const result = await tryCatch(invoke("get_all_servers"));
+    if(!result.error){
+      console.log("RESULT DATA: ", result.data)
+      if(result.data){
+        const servers: any = result.data;
+        setServerList(servers);
+        setServerListLength(servers.length)
+      }
+    }
+  };
+
+  // console.log("item.id + item.picture of first: " + serverList[1].id + serverList[1].picture)
+  let serverListItems = serverList.map((item: ServerMetadata) => <ServerButton key={item.name + item.creator_address} metadata={item}/>);
+
+  return(
+    <>
+      <div id="no-scrollbar" className="w-24 overflow-y-scroll shrink-0 pb-24 pt-40 overflow-hidden">
+        <div className="p-1 absolute top-2 left-3">
+          <div className="flex flex-col gap-1.5">
+            <button 
+              className="flex flex-col w-16 h-16 bg-deep-purple-300 rounded-2xl justify-center place-items-center duration-200 hover:scale-105 z-10 select-none"
+              // onClick={() => {setServerId('')}
+            >
+              <img src={messageBubble} height={35} width={35}/>
+            </button>
+            <OptionsMenuButton/>
+          </div>
+        </div>
+        {serverListItems}
+        {/* <div className="p-1 absolute bottom-2 left-3">
+          <ProfileControls/>
+        </div> */}
+      </div>
+    </>
+  )
+}

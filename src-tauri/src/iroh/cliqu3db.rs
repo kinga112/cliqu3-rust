@@ -398,7 +398,7 @@ impl ServerDocs {
         let namespace_id = NamespaceId::from_str(id)?;
         let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
         println!("invite doc id: {:?}", doc.id().to_string());
-        let ticket = doc.share(ShareMode::Read, AddrInfoOptions::RelayAndAddresses).await?;
+        let ticket = doc.share(ShareMode::Write, AddrInfoOptions::RelayAndAddresses).await?;
         println!("ticket: {:?}", ticket.to_string());
         Ok(ticket.to_string())
     }

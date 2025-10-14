@@ -350,29 +350,37 @@ impl ServerDocs {
     pub async fn get_server_metadata(&self, id: &str) -> Result<ServerMetadata> {
         // get server by id
         println!("get server metadata");
-        let namespace_id = NamespaceId::from_str(id)?;
-        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        let namespace_id = NamespaceId::from_str(id).expect("namespace id from string failed");
+        let doc = self.docs.open(namespace_id).await.expect("opening doc with id failed").expect("could not get server doc");
 
         let metadata_entry = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"metadata".as_bytes()))
                             .await?.ok_or_else(|| anyhow!("Entry not found"))?;
 
-        let metadata_bytes = self.blobs.get_bytes(metadata_entry.content_hash()).await.unwrap();
+        let metadata_bytes = self.blobs.get_bytes(metadata_entry.content_hash()).await.expect("get bytes for blobs failed");
 
-        let metadata = serde_json::from_slice(&metadata_bytes)?;
-        
+        let metadata: ServerMetadata = serde_json::from_slice(&metadata_bytes).expect("deserializing json failed");
+        println!("metadata: {:?}", metadata.id);
         Ok(metadata)
     }
 
     pub async fn get_all_servers(&self) -> Result<Vec<ServerMetadata>, anyhow::Error> {
         let mut servers_list = Vec::new();
-        let mut list = self.docs.list().await?;
+        let mut list = self.docs.list().await.expect("getting list of all docs failed");
         while let Some(result) = list.next().await {
             match result {
                 Ok((namespace_id, capability)) => {
                     // println!("Namespace: {:?}, Capability: {:?}", namespace_id, capability);
-                    let server = self.get_server_metadata(&namespace_id.to_string()).await?;
-                    servers_list.push(server);
+                    let result = self.get_server_metadata(&namespace_id.to_string()).await;
+                    match result {
+                        Ok(server) => {
+                            servers_list.push(server);
+                        }
+                        Err(e) => {
+                            eprint!("getting server metadata failed");
+                        }
+                    }
+                    // servers_list.push(server);
                 }
                 Err(e) => {
                     eprintln!("Error reading stream: {:?}", e);

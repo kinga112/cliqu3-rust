@@ -55,7 +55,7 @@ export function OptionsMenuButton(){
 
   async function joinServer(){
     console.log("joining server")
-    const ticket = '';
+    const ticket = 'docaaa54bdc3gdpm5jpabgy37p444watxg2xpcvlmeeayjbwxt4v6ikudibioydwy6hteuhy7xzmf3zhgpry4po6frjr5kuhehx4ijhnucopwtackdior2ha4z2f4xxk43fgewtcltsmvwgc6jonyyc42lsn5uc42lsn5uc43djnzvs4lyfaafaaafr2omagacjo6bz7u4yamasmaibqibyd4zqaaaaaaaaaa32hveyamasmaibqibyd4zqvhvqpjhosoj75veyamasmaibqibyd4zq3ewwbewgbut6xveyam';
     const result = await tryCatch(invoke("join_server", { ticket }));
     if(!result.error){
       console.log("RESULT DATA: ", result.data)
@@ -69,7 +69,7 @@ export function OptionsMenuButton(){
     <>
       <div className="flex flex-col relative">
         <button ref={optionsMenuButtonRef}
-          className=" w-16 h-16 bg-deep-purple-300 rounded-2xl justify-center place-items-center duration-200 hover:scale-105 z-10 overflow-visible select-none"
+          className=" w-12 h-12 bg-deep-purple-300 rounded-xl justify-center place-items-center duration-200 hover:scale-105 z-10 overflow-visible select-none"
           onClick={optionsMenuClick}
         >
           <img src={options} height={75} width={75}/>

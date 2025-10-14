@@ -46,7 +46,7 @@ export function ServerButton(props: {metadata: ServerMetadata }){
 
   function Button(){
     const buttonStyle = `
-      flex flex-col w-16 h-16 bg-deep-purple-300 rounded-2xl 
+      flex flex-col w-12 h-12 bg-deep-purple-300 rounded-xl 
       justify-center place-items-center duration-200 hover:scale-105 
       ml-4 shrink-0 overflow-hidden select-none`
 
@@ -73,7 +73,7 @@ export function ServerButton(props: {metadata: ServerMetadata }){
         return(
           <>
             <button onClick={setServer} className={buttonStyle}>
-              <img className="object-cover w-16 h-16 rounded-2xl" src={props.metadata.pic} />
+              <img className="object-cover w-14 h-14 rounded-xl" src={props.metadata.pic} />
             </button>
           </>
         )

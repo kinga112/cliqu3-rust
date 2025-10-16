@@ -12,6 +12,7 @@ export type ServerType = {
 
 export type ServerMetadata = {
   id: string,
+  ticket: string,
   name: string,
   pic: string,
   creator_address: string,

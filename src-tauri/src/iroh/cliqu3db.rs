@@ -37,6 +37,7 @@ pub struct Server {
 #[derive(Serialize, Deserialize)]
 pub struct ServerMetadata {
     pub id: String,
+    pub ticket: String,
     pub name: String,
     pub pic: String,
     // pub creator: String,
@@ -191,6 +192,7 @@ pub struct ServerDocs {
     // blobs: MemStore,
     blobs: FsStore,
     author: AuthorId,
+    router: Router,
     // server_docs: Vec<Doc>,
     // user_docs: vec!<Doc>,
 }
@@ -226,7 +228,7 @@ impl ServerDocs {
             .accept(DOCS_ALPN, docs.clone())
             .spawn();
 
-        Ok(Self { docs, blobs, author })
+        Ok(Self { docs, blobs, author, router })
     }
 
     pub async fn create_server(&self, name: &str, pic: &str, creator_address: &str) -> Result<String> {
@@ -248,8 +250,11 @@ impl ServerDocs {
         let doc = self.docs.create().await?;
         println!("server docs id: {:?}", doc.id());
 
+        let ticket = doc.share(ShareMode::Write, Default::default()).await.unwrap();
+
         let metadata = ServerMetadata {
             id: doc.id().to_string(),
+            ticket: ticket.to_string(),
             name: name.to_string(),
             pic: pic.to_string(),
             creator_address: creator_address.to_string(),
@@ -398,15 +403,25 @@ impl ServerDocs {
         let namespace_id = NamespaceId::from_str(id)?;
         let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
         println!("invite doc id: {:?}", doc.id().to_string());
-        let ticket = doc.share(ShareMode::Write, AddrInfoOptions::RelayAndAddresses).await?;
+        let ticket = doc.share(ShareMode::Write, Default::default()).await?;
         println!("ticket: {:?}", ticket.to_string());
         Ok(ticket.to_string())
     }
 
     pub async fn join_server(&self, ticket: &str) -> Result<String> {
         let doc_ticket = DocTicket::from_str(ticket)?;
-        let server_doc = self.docs.import(doc_ticket.clone()).await?;
+        let server_doc = self.docs.import(doc_ticket).await.expect("failed to import new server doc from ticket");
+        server_doc.share(ShareMode::Write, Default::default()).await?;
         println!("Joined new server: {:?}", server_doc.id().to_string());
+        // let result = self.get_server_metadata(&server_doc.id().to_string()).await;
+        // match result {
+            // Ok(metadata) => {
+                // println!("metadata name: {:?}", metadata.name);
+            // }
+            // Err(e) => {
+                // eprint!("getting server metadata on join server failed");
+            // }
+        // }
         Ok(server_doc.id().to_string())
     }
 
@@ -416,8 +431,9 @@ impl ServerDocs {
         println!("{:?}", voice_channel_id.to_string());
         println!("{:?}", user.to_string());
         let endpoint = Endpoint::builder().discovery_n0().alpns(vec![ROQ_ALPN.to_vec()]).bind().await?;
-        let namespace_id = NamespaceId::from_str(id)?;
-        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        // let namespace_id = NamespaceId::from_str(id)?;
+        // let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("could not get doc from ticket in add user to call");
 
         let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"voice_channels".as_bytes()))
@@ -436,7 +452,6 @@ impl ServerDocs {
         let voice_channels_bytes = serde_json::to_vec(&voice_channels)?;
 
         let _ = doc.set_bytes(self.author.clone(), "voice_channels".to_string().into_bytes(), voice_channels_bytes.clone()).await?;
-
         Ok(endpoint)
     }
 
@@ -445,8 +460,10 @@ impl ServerDocs {
         println!("{:?}", id.to_string());
         println!("{:?}", voice_channel_id.to_string());
         println!("{:?}", user.to_string());
-        let namespace_id = NamespaceId::from_str(id)?;
-        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        // let namespace_id = NamespaceId::from_str(id)?;
+        // let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+
+        let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("could not get doc from ticket in add user to call");
 
         let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"voice_channels".as_bytes()))
@@ -483,11 +500,17 @@ impl ServerDocs {
         Ok(voice_channel.active_users[0].clone())
     }
 
-    pub async fn set_current_server(&self, id: &str, app: tauri::AppHandle) -> Result<()> {
+    // pub async fn set_current_server(&self, id: &str, app: tauri::AppHandle) -> Result<()> {
+
+    //// SUBSCRIPTION IS NOT WORKING FIX WITH TICKET!
+    pub async fn set_current_server(&self, ticket_str: &str, app: tauri::AppHandle) -> Result<()> {
         println!("inside set_current_server");
-        let namespace_id = NamespaceId::from_str(id)?;
-        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
-        let mut subscription = doc.subscribe().await.expect("subscription failed");
+        // let namespace_id = NamespaceId::from_str(id)?;
+        let ticket = DocTicket::from_str(ticket_str).unwrap();
+        let (_doc, mut subscription) = self.docs.import_and_subscribe(ticket).await.expect("subscription failed");
+        // let doc = self.docs.import(ticket).await.expect("import failed");
+        // let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        // let mut subscription = doc.subscribe().await.expect("subscription failed");
 
         println!("after subscription in set_current_server");
         let app_handle = app.clone();
@@ -499,7 +522,7 @@ impl ServerDocs {
                 match result {
                     // Ok(event) => match event {
                     Ok(event) => {
-                        let payload = match &event {
+                        match &event {
                             LiveEvent::InsertLocal { entry } => {
                                 let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
                                 let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
@@ -512,8 +535,24 @@ impl ServerDocs {
 
                                 let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
                             },
-                            LiveEvent::InsertRemote { .. } => {},
-                            LiveEvent::ContentReady { .. } => {},
+                            LiveEvent::InsertRemote { from, entry, content_status } => {
+                                println!("NEW REMOTE CONTENT");
+                                println!("CONTENT STATUS: {:?} ", content_status);
+                                println!("FROM: {:?} ", from.to_string());
+                                let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
+                                let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                let payload = serde_json::json!({
+                                    "event": format!("{:?}", event),
+                                    "data": data // or parse if structured
+                                });
+
+                                println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                            },
+                            LiveEvent::ContentReady { hash } => {
+                                println!("    [    HASH IS READY    ]    ");
+                            },
                             LiveEvent::PendingContentReady => {},
                             LiveEvent::NeighborUp(_) => {},
                             _ => {},

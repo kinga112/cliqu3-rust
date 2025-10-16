@@ -138,11 +138,11 @@ async fn end_call(server_id: &str, voice_channel_id: &str, user: &str, state: St
 }
 
 #[tauri::command]
-async fn set_current_server(id: &str, app: tauri::AppHandle, state: State<'_, Mutex<AppState>>) ->  Result<(), String> {
-    println!("Running set_current_server: {:?}", id);
+async fn set_current_server(ticket_str: &str, app: tauri::AppHandle, state: State<'_, Mutex<AppState>>) ->  Result<(), String> {
+    println!("Running set_current_server with ticket str: {:?}", ticket_str);
     let app_state = state.lock().await;
     let db = app_state.db.as_ref().expect("Database no initialized").clone();
-    let _ = db.set_current_server(id, app).await.expect("set_current_server failed");
+    let _ = db.set_current_server(ticket_str, app).await.expect("set_current_server failed");
     Ok(())
 }
 

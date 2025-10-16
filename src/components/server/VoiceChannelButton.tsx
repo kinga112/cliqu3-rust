@@ -5,7 +5,7 @@ import { useGlobalStore } from "../../state-management/globalStore";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 
-export function VoiceChannelButton(props: { serverId: string, id: string, name: string, active_users: string[]}){
+export function VoiceChannelButton(props: { ticket: string, id: string, name: string, active_users: string[]}){
   // let currentScreen = useGlobalStore(globals => globals.currentScreen);
   console.log("props active users:", props.active_users);
   const setCurrentVoiceChannel = useGlobalStore(globals => globals.setCurrentVoiceChannel);
@@ -15,9 +15,9 @@ export function VoiceChannelButton(props: { serverId: string, id: string, name: 
       console.log("join call")
       joinCall();
     }else{
-      console.log("start call: ", props.serverId, props.id, 'Test User 1')
+      console.log("start call: ", props.ticket, props.id, 'Test User 1')
       const user = "Test User 1";
-      const result = await tryCatch(invoke("start_call", { serverId: props.serverId, voiceChannelId: props.id, user }));
+      const result = await tryCatch(invoke("start_call", { serverId: props.ticket, voiceChannelId: props.id, user }));
       if(!result.error){
         console.log("RESULT DATA: ", result.data)
       }
@@ -27,15 +27,15 @@ export function VoiceChannelButton(props: { serverId: string, id: string, name: 
 
   async function joinCall(){
     const user = "Test User 2";
-    const result = await tryCatch(invoke("join_call", { serverId: props.serverId, voiceChannelId: props.id, user }));
+    const result = await tryCatch(invoke("join_call", { serverId: props.ticket, voiceChannelId: props.id, user }));
     if(!result.error){
       console.log("RESULT DATA: ", result.data)
     }
   }
 
   async function endCall(user: string){
-    console.log("end call: ", props.serverId, props.id, user)
-    const serverId = props.serverId;
+    console.log("end call: ", props.ticket, props.id, user)
+    const serverId = props.ticket;
     const voiceChannelId = props.id;
     const result = await tryCatch(invoke("end_call", { serverId, voiceChannelId, user }));
     if(!result.error){

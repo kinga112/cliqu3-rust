@@ -20,16 +20,7 @@ export function Home(){
     await invoke("init_state");
     setSpash(false)
   }
-
-  async function startCall(){
-    await invoke("start_call");
-  }
-
-  async function joinCall(){
-    const remotePkStr = publickey;
-    await invoke("join_call", { remotePkStr });
-  }
-
+  
   return (
     <>
       {splash ? 

@@ -49,11 +49,11 @@ console.log("current screen inside sidebar: ", currentScreen);
 //   }
 
   async function getInviteCode(){
-    console.log("getting invite code for", currentScreen?.metadata.id)
-    const result = await tryCatch(invoke("invite", { id: currentScreen?.metadata.id }));
-    if(!result.error){
-      console.log("RESULT DATA: ", result.data)
-    }
+    console.log("getting invite code for", currentScreen?.metadata.ticket)
+    // const result = await tryCatch(invoke("invite", { id: currentScreen?.metadata.id }));
+    // if(!result.error){
+    //   console.log("RESULT DATA: ", result.data)
+    // }
   }
 
   let textChannelArrow = ''
@@ -72,7 +72,7 @@ console.log("current screen inside sidebar: ", currentScreen);
   let voiceChannels: JSX.Element[] = []
   for (let key in currentScreen?.voice_channels) {
     let voiceChannel = currentScreen?.voice_channels[key];
-    voiceChannels.push(<VoiceChannelButton key={key} serverId={currentScreen!.metadata.id} id={key} name={voiceChannel.name} active_users={voiceChannel.active_users}/>)
+    voiceChannels.push(<VoiceChannelButton key={key} ticket={currentScreen!.metadata.ticket} id={key} name={voiceChannel.name} active_users={voiceChannel.active_users}/>)
     // Use `key` and `value`
   }
 

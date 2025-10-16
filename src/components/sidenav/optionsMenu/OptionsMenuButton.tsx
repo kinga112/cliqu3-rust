@@ -55,10 +55,12 @@ export function OptionsMenuButton(){
 
   async function joinServer(){
     console.log("joining server")
-    const ticket = 'docaaa54bdc3gdpm5jpabgy37p444watxg2xpcvlmeeayjbwxt4v6ikudibioydwy6hteuhy7xzmf3zhgpry4po6frjr5kuhehx4ijhnucopwtackdior2ha4z2f4xxk43fgewtcltsmvwgc6jonyyc42lsn5uc42lsn5uc43djnzvs4lyfaafaaafr2omagacjo6bz7u4yamasmaibqibyd4zqaaaaaaaaaa32hveyamasmaibqibyd4zqvhvqpjhosoj75veyamasmaibqibyd4zq3ewwbewgbut6xveyam';
+    const ticket = 'docaaacbswt375qqddyxwljhmawihsso7fmkxl467vemigs7ovw6tlgo6hqaf5hox34bqcnajpsnwhtzgxacdenmij5mlinoet6ucco7vpupedtcajinb2hi4dthixs65ltmuys2mjoojswyylzfzxdaltjojxwqltjojxwqltmnfxgwlrpauaauaaawgbksayajf3yhh4cvebqcjqbagbahaptgaaaaaaaaaadpi4dvebqcjqbagbahaptgcawdvnv2plygeudvebqcjqbagbahaptgcu6wb5e52jzh7udvebq';
     const result = await tryCatch(invoke("join_server", { ticket }));
     if(!result.error){
       console.log("RESULT DATA: ", result.data)
+    }else{
+      console.log("Error joining server:", result.error)
     }
   }
 

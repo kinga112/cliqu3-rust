@@ -38,28 +38,38 @@ export default function Server(){
 
     (async () => {
       try {
-        unlisten = await listen<any>("iroh_event", (event) => {
+        unlisten = await listen<any>("iroh_event", async (event) => {
           // const payload = JSON.parse(event.payload)
           // const eventData = JSON.parse(payload.event)
           const currentScreen = useGlobalStore.getState().currentScreen;
           console.log("Received iroh event:", event);
           console.log("current screen inside iroh event listener: ", currentScreen);
-          const voiceChannels: {
-              [id: string] : VoiceChannel
-            } = event.payload.data;
-          console.log("voice channels: ", voiceChannels)
-          const server: ServerType = {
-            creator_hash: currentScreen!.creator_hash,
-            metadata: currentScreen!.metadata,
-            text_channels: currentScreen!.text_channels,
-            voice_channels: voiceChannels
-          };
-          console.log("updated server: ", server);
-          setCurrentScreen(server);
-          // const eventJson = JSON.parse(payload.event.split("}")[1]);
-          // console.log("event json: ", eventJson);
-          // console.log("event key", eventData.key);
-          // update state here if needed
+          if(event.payload.data == "missing data"){
+            console.log("MISSING DATA NEED TO RELOAD SERVER!:", currentScreen?.metadata.id);
+            const result = await tryCatch(invoke("get_server", {id: currentScreen?.metadata.id}));
+            if(!result.error){
+              console.log("Fetched server: ", result.data)
+              const server: any = result.data;
+              setCurrentScreen(server)
+            }else{
+              console.log("Error ", result.error)
+            }
+          }else{
+            const voiceChannels: { [id: string] : VoiceChannel } = event.payload.data;
+            console.log("voice channels: ", voiceChannels)
+            const server: ServerType = {
+              creator_hash: currentScreen!.creator_hash,
+              metadata: currentScreen!.metadata,
+              text_channels: currentScreen!.text_channels,
+              voice_channels: voiceChannels
+            };
+            console.log("updated server: ", server);
+            setCurrentScreen(server);
+            // const eventJson = JSON.parse(payload.event.split("}")[1]);
+            // console.log("event json: ", eventJson);
+            // console.log("event key", eventData.key);
+            // update state here if needed
+          }
 
         });
       } catch (err) {

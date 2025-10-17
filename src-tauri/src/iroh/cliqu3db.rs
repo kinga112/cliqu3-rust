@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::str;
 use anyhow::{Result, anyhow};
 use futures_lite::StreamExt;
+use iroh::SecretKey;
 use iroh_blobs::store::mem::MemStore;
 use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
 use iroh_docs::engine::LiveEvent;
@@ -63,8 +64,9 @@ pub struct Cliqu3Db {
 impl Cliqu3Db {
     // Create a new ServersDb (a single document)
     pub async fn new(path: path::PathBuf) -> Result<Self> {
+        // let secret_key = SecretKey::from_str("very secret key").unwrap();
         let endpoint = Endpoint::builder().discovery_n0().bind().await?;
-
+        // let endpoint = Endpoint::builder().secret_key(secret_key).discovery(Default::def).bind().await?;
         let gossip = Gossip::builder().spawn(endpoint.clone());
 
         // let store = MemStore::new();
@@ -200,7 +202,10 @@ pub struct ServerDocs {
 impl ServerDocs {
     // Create a new ServersDb (a single document)
     pub async fn new(path: path::PathBuf) -> Result<Self> {
-        let endpoint = Endpoint::builder().discovery_n0().bind().await?;
+        // let endpoint = Endpoint::builder().relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
+        let bytes = [41, 114, 100, 25, 163, 215, 83, 118, 170, 9, 130, 194, 128, 166, 248, 242, 146, 19, 3, 56, 185, 96, 153, 203, 31, 235, 40, 51, 198, 193, 87, 149];
+        let secret_key = SecretKey::from_bytes(&bytes);
+        let endpoint = Endpoint::builder().secret_key(secret_key).relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
 
         let gossip = Gossip::builder().spawn(endpoint.clone());
 
@@ -365,7 +370,9 @@ impl ServerDocs {
         let metadata_bytes = self.blobs.get_bytes(metadata_entry.content_hash()).await.expect("get bytes for blobs failed");
 
         let metadata: ServerMetadata = serde_json::from_slice(&metadata_bytes).expect("deserializing json failed");
-        println!("metadata: {:?}", metadata.id);
+        let ticket = doc.share(ShareMode::Write, Default::default()).await.expect("creating doc ticket failed");
+        println!("doc ticket in server metadata: {:?}", ticket.to_string());
+        println!("metadata ticket saved in server: {:?}", metadata.ticket);
         Ok(metadata)
     }
 
@@ -539,45 +546,55 @@ impl ServerDocs {
                                 println!("NEW REMOTE CONTENT");
                                 println!("CONTENT STATUS: {:?} ", content_status);
                                 println!("FROM: {:?} ", from.to_string());
-                                let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
+                                // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
+                                let result = blobs.get_bytes(entry.content_hash()).await;
+                                match result {
+                                    Ok(bytes) => {
+                                        let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                        let payload = serde_json::json!({
+                                            "event": format!("{:?}", event),
+                                            "data": data // or parse if structured
+                                        });
+
+                                        println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+                                        let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                    }
+                                    Err(e) => {
+                                        let payload = serde_json::json!({
+                                            "event": format!("{:?}", event),
+                                            "data": "missing data", // or parse if structured
+                                        });
+
+                                        println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+                                        let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                    }
+                                }
+                                // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                            },
+                            LiveEvent::ContentReady { hash } => {
+                                println!("    [    LIVE EVENT: HASH IS READY    ]    ");
+                                let bytes = blobs.get_bytes(*hash).await.unwrap();
                                 let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                println!("DATA FROM HASH: {:?}", data);
                                 let payload = serde_json::json!({
                                     "event": format!("{:?}", event),
                                     "data": data // or parse if structured
                                 });
-
-                                println!("REMOTE: updated entry payload: {:?}", payload.to_string());
-
                                 let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
                             },
-                            LiveEvent::ContentReady { hash } => {
-                                println!("    [    HASH IS READY    ]    ");
+                            LiveEvent::PendingContentReady  => {
+                                println!("    [   LIVE EVENT: Pending Content IS READY    ]    ");
                             },
-                            LiveEvent::PendingContentReady => {},
-                            LiveEvent::NeighborUp(_) => {},
-                            _ => {},
+                            LiveEvent::NeighborUp(_) => {
+                                println!("    [   LIVE EVENT: New Peer joined    ]    ");
+                            },
+                            LiveEvent::SyncFinished(sync) => {
+                                println!("    [   LIVE EVENT: sync finished    ]    ");
+                            }
+                            _ => {
+                                println!("    [   OTHER EVENT IDEK!   ]    ");
+                            },
                         };
-
-                        // if let Err(e) = app_handle.emit("iroh_event", payload.to_string()) {
-                        //     eprintln!("Failed to emit event: {:?}", e);
-                        // }
-
-                        // LiveEvent::InsertLocal { .. } => {
-                        //     println!("Local change inserted");
-                        // }
-                        // LiveEvent::InsertRemote { .. } => {
-                        //     println!("Remote change inserted");
-                        // }
-                        // LiveEvent::ContentReady { .. } => {
-                        //     println!("Document content is ready");
-                        // }
-                        // LiveEvent::PendingContentReady => {
-                        //     println!("Waiting for content...");
-                        // }
-                        // LiveEvent::NeighborUp(peer_id) => {
-                        //     println!("A neighbor came online: {:?}", peer_id);
-                        // }
-                        // _ => {}
                     },
                     Err(e) => {
                         eprintln!("Error in subscription: {:?}", e);

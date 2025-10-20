@@ -1,20 +1,13 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use iroh_roq::rtp::{header::Header, packet::Packet};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, Stream, StreamConfig};
-use iroh_roq::{ReceiveFlow, SendFlow, VarInt};
-use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
-use bytes::Bytes;
-use opus::{Encoder, Decoder, Application, Channels};
-use tokio::sync::mpsc::Receiver;
+use cpal::{Device, StreamConfig};
+use iroh_roq::ReceiveFlow;
+use opus::{Decoder, Channels};
 
-// const MONO_20MS: usize = 48000 * 20 / 1000;
 const SAMPLE_RATE: u32 = 48_000;
-// const CHANNELS: usize = 2;
 const FRAME_SIZE: usize = 960; // 20ms @ 48kHz stereo
 
-#[derive(Clone)]
 pub struct AudioOutput {
     device: Device,
     config: StreamConfig,
@@ -23,9 +16,8 @@ pub struct AudioOutput {
 }
 
 impl AudioOutput {
-    // pub async fn new() -> Result<()>{
-    pub fn new() -> Self{
-        println!("audio::new");
+    pub fn new() -> Self {
+        println!("AudioOuput::new");
         // let token = CancellationToken::new();
         let host = cpal::default_host();
         let device = host.default_output_device().expect("No output device available");
@@ -39,15 +31,13 @@ impl AudioOutput {
     }
 
     pub async fn create_stream(&self, mut recv_flow: ReceiveFlow) {
-    // pub async fn create_stream(&self, mut rx: Receiver<Packet>) {
         // Shared playback buffer for decoded samples
         let playback_buffer = Arc::new(Mutex::new(VecDeque::<i16>::new()));
 
-        // Build the output stream ONCE
+        // cloned playback buffer for inside stream. causes deadlock inside output stream if not cloned
         let playback_buffer_clone = playback_buffer.clone();
 
-        let mut t = 0f32;
-
+        // audio cue when call starts
         {
             let mut buf = playback_buffer.lock().unwrap();
             for i in 0..4800 {
@@ -80,33 +70,28 @@ impl AudioOutput {
         stream.play().expect("output stream play failed");
 
         let mut pcm_out = vec![0i16; FRAME_SIZE * 2];
-        let mut decoder = Decoder::new(SAMPLE_RATE, Channels::Stereo).unwrap();
-        let channels = self.config.channels as usize;
 
-        // while let Some(packet) = rx.recv().await {
-            // println!("received packet from rx in output stream!");
+        let channels = self.config.channels as usize;
+        let mut opus_decoder_channels = Channels::Mono;
+        if channels == 2 {
+            opus_decoder_channels = Channels::Stereo;
+        }
+
+        let mut decoder = Decoder::new(SAMPLE_RATE, opus_decoder_channels).unwrap();
+
         while let Ok(packet) = recv_flow.read_rtp().await {
-            if let Ok(decoded) = decoder.decode(&packet.payload, &mut pcm_out, false) {
+            if let Ok(sample_length) = decoder.decode(&packet.payload, &mut pcm_out, false) {
                 let mut buf = playback_buffer.lock().unwrap();
-                let decoded_channels = channels.clone(); // what Opus gave us
-                let samples_per_channel = decoded; // "decoded" is per channel
                 // let gain = 1.0;
 
-                for i in 0..samples_per_channel {
-                    if decoded_channels == 1 && channels == 2 {
-                        let s = pcm_out[i];
-                        buf.push_back(s); // left
-                        buf.push_back(s); // right
-                    } else {
-                        // other cases: channels match
-                        for channel in 0..channels {
-                            let s = pcm_out[i * decoded_channels + channel];
-                            buf.push_back(s);
-                        }
+                for i in 0..sample_length {
+                    // different for mono and stereo or below works?
+                    for channel in 0..channels {
+                        let s = pcm_out[i * channels + channel];
+                        buf.push_back(s);
                     }
                 }
             }
         }
     }
-
 }

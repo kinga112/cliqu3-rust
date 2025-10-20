@@ -11,12 +11,14 @@ use bytes::Bytes;
 use opus::{Encoder, Decoder, Application, Channels};
 use tokio::sync::mpsc::Receiver;
 
+// use crate::call::encoder::OpusEncoder;
+use crate::call::encoder::OpusEncoder;
+
 // const MONO_20MS: usize = 48000 * 20 / 1000;
 const SAMPLE_RATE: u32 = 48_000;
 // const CHANNELS: usize = 2;
 const FRAME_SIZE: usize = 960; // 20ms @ 48kHz stereo
 
-#[derive(Clone)]
 pub struct AudioInput {
     device: Device,
     config: StreamConfig,
@@ -25,8 +27,8 @@ pub struct AudioInput {
 
 impl AudioInput {
     // pub async fn new() -> Result<()>{
-    pub fn new() -> Self{
-        println!("audio::new");
+    pub fn new() -> Self {
+        println!("AudioInput::new");
         let host = cpal::default_host();
         let device = host.default_input_device().expect("No input device available");
         let config = device.default_input_config().expect("default input config failed").config();
@@ -37,54 +39,24 @@ impl AudioInput {
     pub async fn create_stream(&mut self, send_flow: SendFlow) {
         // creates input stream to send input samples over rtp connection
         let channels = self.config.channels as usize;
-        let mut opus_encoder_channels = Channels::Mono;
-
-        if channels == 2 {
-            opus_encoder_channels = Channels::Stereo;
-        }
-
-        let mut encoder = Encoder::new(SAMPLE_RATE, opus_encoder_channels, Application::Voip).unwrap();
-
-        let ssrc: u32 = 42;
-        let seq = AtomicU16::new(0);
-        let ts = AtomicU32::new(0);
-
+        let mut opus = OpusEncoder::new(channels);
         let mut sample_buffer = Vec::with_capacity(FRAME_SIZE * channels);
-
-        println!("before building input stream");
 
         let stream = self.device.build_input_stream(
             &self.config,
             move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                // println!("inside input stream");
                 for &sample in data {
                     // gather samples from mic and store in buffer
                     sample_buffer.push(sample);
                     // when buffer is large enough to create a packet, encode and send packet
                     if sample_buffer.len() >= FRAME_SIZE * channels {
-                        let mut out = [0u8; 4000];
-                        if let Ok(len) = encoder.encode(&sample_buffer, &mut out) {
-                            let packet = Packet {
-                                header: Header {
-                                    sequence_number: seq.fetch_add(1, Ordering::Relaxed),
-                                    timestamp: ts.fetch_add(FRAME_SIZE as u32, Ordering::Relaxed),
-                                    ssrc,
-                                    payload_type: 97,
-                                    ..Default::default()
-                                },
-                                payload: Bytes::from(out[..len].to_vec()),
-                            };
-                            // println!("before sending input from mic to rtp endpoint");
-                            if let Err(e) = send_flow.send_rtp(&packet) {
-                                // input from user in call is still streamed but fails to send
-                                // since no other users in call
-                                eprintln!("Send RTP error 123: {:?}", e);
-                                println!("sample after conn lost error: {:?}", sample);
-                                let error_code: VarInt = VarInt::from_u32(100);
-                                let reason: &[u8] = b"connection ended / all users left the call";
-                                // connection.close(error_code, reason);
-                                panic!("Input stream error: conn lost");
-                            }
+                        // encode and send packet over rtp
+                        let packet = opus.encode_sample(sample_buffer.clone()).expect("encoding error!");
+                        if let Err(e) = send_flow.send_rtp(&packet) {
+                            // let error_code: VarInt = VarInt::from_u32(100);
+                            // let reason: &[u8] = b"connection ended / all users left the call";
+                            // connection.close(error_code, reason);
+                            println!("Input stream error: conn lost: {:?}", e);
                         }
                         sample_buffer.clear();
                     }
@@ -95,6 +67,9 @@ impl AudioInput {
         ).unwrap();
         stream.play().unwrap();
         // self.stream = Some(stream);
+
+        // fix relying on this...
+        // how to keep alive ?? ..
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             println!("another 10 seconds!");

@@ -667,92 +667,12 @@ impl ServerDocs {
                                         let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
                                     },
                                     LiveEvent::InsertRemote { from, entry, content_status } => {
-                                        // println!("NEW REMOTE CONTENT");
-                                        // println!("CONTENT STATUS: {:?} ", content_status);
-                                        // println!("FROM: {:?} ", from.to_string());
-                                        // // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
-                                        // if *content_status == ContentStatus::Missing {
-                                        //     println!("CONTENT MISSING! Not sending emit to run get server, but statying sync");
-                                        //     // let payload = serde_json::json!({
-                                        //     //     "event": format!("{:?}", event),
-                                        //     //     "data": "missing data" // or parse if structured
-                                        //     // });
-
-                                        //     // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
-
-                                        //     // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
-                                        //     // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
-                                        //     // This will attempt to re-fetch the content that the doc believes should be local.
-
-                                        //     let peers = doc.get_sync_peers().await.unwrap().unwrap();
-                                        //     println!("FIRST Sync Peers: {:?}", peers);
-                                        //     let mut addrs: Vec<NodeAddr> = vec![];
-                                        //     for peer in peers {
-                                        //         let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
-                                        //         addrs.push(addr);
-                                        //     }
-
-                                        //     match doc.start_sync(addrs).await {
-                                        //         Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
-                                        //         Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
-                                        //     }
-                                        //     let final_peers = doc.get_sync_peers().await.unwrap_or_default();
-                                        //     println!("Final Sync Peers: {:?}", final_peers);
-                                        // } else if *content_status == ContentStatus::Complete {
-                                        //     let result = blobs.get_bytes(entry.content_hash()).await;
-                                        //     match result {
-                                        //         Ok(bytes) => {
-                                                    // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
-                                                    // let payload = serde_json::json!({
-                                                    //     "event": format!("{:?}", event),
-                                                    //     "data": data // or parse if structured
-                                                    // });
-
-                                                    // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
-
-                                                    // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
-                                        //         }
-                                        //         Err(e) => {
-                                        //             // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
-                                        //             println!("Blobs get bytes error! Not sending emit to run get server");
-                                        //             eprintln!("❌ FATAL ERROR: Failed to get bytes for entry hash after ContentReady: {:?}", e);
-                                        //             // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
-                                        //             // This will attempt to re-fetch the content that the doc believes should be local.
-
-                                                    // let peers = doc.get_sync_peers().await.unwrap().unwrap();
-                                                    // let mut addrs: Vec<NodeAddr> = vec![];
-                                                    // for peer in peers {
-                                                    //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
-                                                    //     addrs.push(addr);
-                                                    // }
-
-                                        //             match doc.start_sync(addrs).await {
-                                        //                 Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
-                                        //                 Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
-                                        //             }
-                                        //             // let payload = serde_json::json!({
-                                        //             //     "event": format!("{:?}", event),
-                                        //             //     "data": "missing data" // or parse if structured
-                                        //             // });
-
-                                        //             // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
-
-                                        //             // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
-
-                                        //         }
-                                            // }
-                                        // } else {
-                                        //     print!("ELSE CONTENT STATUS: {:?}", content_status);
-                                        // }
                                         const MAX_FETCH_ATTEMPTS: u8 = 10;
                                         const RETRY_DELAY_MS: u64 = 1000;
-                                        // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
                                         println!("📢 Remote entry received. Hash: {:?} is missing. Starting fetch loop.", entry.content_hash());
 
                                         let mut attempts = 0;
                                         
-                                        // Loop until the content is found locally or we hit the maximum attempts
-                                        // if blobs.has(entry.content_hash()).await.unwrap() {
                                         if *content_status == ContentStatus::Complete {
                                             let bytes = blobs.get_bytes(entry.content_hash()).await.unwrap();
                                             let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");

@@ -37,7 +37,7 @@ export function ServerButton(props: {metadata: ServerMetadata }){
   async function setServer(){
     if(!active){
       await fetchServer();
-      const result = await tryCatch(invoke("set_current_server", {ticketStr: props.metadata.ticket}));
+      const result = await tryCatch(invoke("set_current_server", {ticketStr: props.metadata.id}));
       if(!result.error){
         console.log("RESULT DATA: ", result.data);
       }

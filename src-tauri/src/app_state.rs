@@ -2,11 +2,12 @@
 use crate::{call::handler::CallHandler, iroh::cliqu3db::ServerDocs};
 use std::sync::Arc;
 use anyhow::{Ok, Result};
+use tokio::sync::Mutex;
 
 pub struct AppState {
     pub user: String,
     // pub db: Option<Arc<Cliqu3Db>>,
-    pub db: Option<Arc<ServerDocs>>,
+    pub db: Option<Arc<Mutex<ServerDocs>>>,
     // pub call: Call,
     pub call: CallHandler,
 }
@@ -26,7 +27,7 @@ impl AppState {
     // }
 
     pub fn init_db(&mut self, db: ServerDocs) -> Result<()> {
-        self.db = Some(Arc::new(db));
+        self.db = Some(Arc::new(Mutex::new(db)));
         Ok(())
     }
 }

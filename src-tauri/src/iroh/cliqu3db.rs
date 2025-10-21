@@ -2,22 +2,31 @@ use std::collections::HashMap;
 use std::{path, vec};
 use std::str::FromStr;
 use std::str;
-use anyhow::{Result, anyhow};
-use futures_lite::StreamExt;
-use iroh::SecretKey;
+use anyhow::{anyhow, Error, Result};
+use bytes::Bytes;
+use futures_lite::{Stream, StreamExt};
+use iroh::{NodeAddr, PublicKey, SecretKey};
 use iroh_blobs::store::mem::MemStore;
 use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
+use iroh_docs::api::Doc;
 use iroh_docs::engine::LiveEvent;
+use iroh_docs::ContentStatus;
 use iroh_docs::{protocol::Docs, store::Query, AuthorId, DocTicket, NamespaceId, ALPN as DOCS_ALPN};
 use iroh::{protocol::Router, Endpoint};
 use iroh_blobs::{BlobsProtocol, store::fs::FsStore, ALPN as BLOBS_ALPN};
 use iroh_gossip::{net::Gossip, ALPN as GOSSIP_ALPN};
 use iroh_roq::{ALPN as ROQ_ALPN};
+use iroh::discovery::{Discovery, IntoDiscovery, };
 use serde::{Serialize, Deserialize};
 use tauri::Emitter;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use sha2::Sha256;
 use hmac::{Hmac, Mac};
+use iroh_blobs::api::downloader::{Downloader, DownloadProgress, SupportedRequest, ContentDiscovery};
+use iroh_blobs::protocol::Request;
+use iroh_blobs::api::remote::Remote;
+// use iroh_docs::sync::
 // use base64::{engine::general_purpose, Engine};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -64,9 +73,11 @@ pub struct Cliqu3Db {
 impl Cliqu3Db {
     // Create a new ServersDb (a single document)
     pub async fn new(path: path::PathBuf) -> Result<Self> {
-        // let secret_key = SecretKey::from_str("very secret key").unwrap();
-        let endpoint = Endpoint::builder().discovery_n0().bind().await?;
-        // let endpoint = Endpoint::builder().secret_key(secret_key).discovery(Default::def).bind().await?;
+        let secret_key = SecretKey::from_str("very secrey key").unwrap();
+        // let endpoint = Endpoint::builder().discovery_n0().bind().await?;
+        // let disc = IntoDiscovery::into_discovery(self, context);
+        let endpoint = Endpoint::builder().secret_key(secret_key).relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
+
         let gossip = Gossip::builder().spawn(endpoint.clone());
 
         // let store = MemStore::new();
@@ -195,6 +206,7 @@ pub struct ServerDocs {
     blobs: FsStore,
     author: AuthorId,
     router: Router,
+    cancellation_token: Option<CancellationToken>,
     // server_docs: Vec<Doc>,
     // user_docs: vec!<Doc>,
 }
@@ -202,9 +214,14 @@ pub struct ServerDocs {
 impl ServerDocs {
     // Create a new ServersDb (a single document)
     pub async fn new(path: path::PathBuf) -> Result<Self> {
-        // let endpoint = Endpoint::builder().relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
+        // let endpoint = Endpoint::builder().discovery_n0().bind().await?;
+        // let mut rng = rand::rngs::OsRng;
+        // let _key = iroh_base::SecretKey::generate(&mut rng);
+        // let cancellation_token = CancellationToken::new();
+        // let secret_key = SecretKey::generate(&mut rng);
         let bytes = [41, 114, 100, 25, 163, 215, 83, 118, 170, 9, 130, 194, 128, 166, 248, 242, 146, 19, 3, 56, 185, 96, 153, 203, 31, 235, 40, 51, 198, 193, 87, 149];
         let secret_key = SecretKey::from_bytes(&bytes);
+        // println!("secret key: {:?}", secret_key.to_bytes());
         let endpoint = Endpoint::builder().secret_key(secret_key).relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
 
         let gossip = Gossip::builder().spawn(endpoint.clone());
@@ -233,7 +250,7 @@ impl ServerDocs {
             .accept(DOCS_ALPN, docs.clone())
             .spawn();
 
-        Ok(Self { docs, blobs, author, router })
+        Ok(Self { docs, blobs, author, router, cancellation_token: None })
     }
 
     pub async fn create_server(&self, name: &str, pic: &str, creator_address: &str) -> Result<String> {
@@ -255,7 +272,7 @@ impl ServerDocs {
         let doc = self.docs.create().await?;
         println!("server docs id: {:?}", doc.id());
 
-        let ticket = doc.share(ShareMode::Write, Default::default()).await.unwrap();
+        let ticket = doc.share(ShareMode::Write, AddrInfoOptions::RelayAndAddresses).await.unwrap();
 
         let metadata = ServerMetadata {
             id: doc.id().to_string(),
@@ -321,11 +338,44 @@ impl ServerDocs {
         }
     }
 
-    pub async fn get_server(&self, id: &str) -> Result<Server> {
+    pub fn cancel(&mut self) {
+        if self.cancellation_token.is_none() {
+            self.cancellation_token = Some(CancellationToken::new());
+        }else {
+            // self.cancellation_token.unwrap().cancel();
+            let token = self.cancellation_token.clone().unwrap();
+            token.cancel();
+            self.cancellation_token = None;
+        }
+    }
+
+    pub async fn get_server(&mut self, id: &str) -> Result<Server> {
         // get server by id
         println!("get server");
+        // let mut a = self.cancel();
+        // self.cancellation_token;
+        if self.cancellation_token.is_none() {
+            self.cancellation_token = Some(CancellationToken::new());
+        }else {
+            // self.cancellation_token.unwrap().cancel();
+            let token = self.cancellation_token.clone().unwrap();
+            token.cancel();
+            self.cancellation_token = None;
+            self.cancellation_token = Some(CancellationToken::new());
+        }
         let namespace_id = NamespaceId::from_str(id)?;
         let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        // let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("getting server doc from ticket failed");
+        let peers = doc.get_sync_peers().await.unwrap();
+        if peers.is_some() {
+            let mut addrs: Vec<NodeAddr> = vec![];
+            for peer in peers.unwrap() {
+                let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                addrs.push(addr);
+            }
+
+            doc.start_sync(addrs).await.unwrap();
+        }
 
         let metadata_entry = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"metadata".as_bytes()))
@@ -335,17 +385,59 @@ impl ServerDocs {
                             .key_exact(&"text_channels".as_bytes()))
                             .await?.ok_or_else(|| anyhow!("Entry not found"))?;
 
-        let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
+        // let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
+        //                     .key_exact(&"voice_channels".as_bytes()))
+        //                     .await?.ok_or_else(|| anyhow!("Entry not found"))?;
+
+        let voice_channels_entry_result = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"voice_channels".as_bytes()))
-                            .await?.ok_or_else(|| anyhow!("Entry not found"))?;
+                            .await;
+
+        let mut voice_channels_bytes = Bytes::from("");
+
+        match voice_channels_entry_result {
+            Ok(entry) => {
+                let e = entry.unwrap();
+                let result = self.blobs.get_bytes(e.content_hash()).await;
+                match result {
+                    Ok(bytes) => {
+                        voice_channels_bytes = bytes;
+                    }
+                    Err(e) => {
+                        println!("FAILED TO GET VOICE CHANNEL BYTES FROM LOCAL BLOB BY IN GET SERVER: {:?}", e);
+                        let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                        let mut addrs: Vec<NodeAddr> = vec![];
+                        for peer in peers {
+                            let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                            addrs.push(addr);
+                        }
+
+                        let a = doc.start_sync(addrs).await;
+                        println!("after start sync: {:?}", a);
+                        // let new_bytes = self.blobs.get_bytes(e.content_hash()).await.expect("failed to get voice channels bytes after sync");
+                    }
+                }
+            }
+            Err(e) => {
+                println!("FAILED TO GET VOICE CHANNEL ENTRY IN GET SERVER: {:?}", e);
+                let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                let mut addrs: Vec<NodeAddr> = vec![];
+                for peer in peers {
+                    let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                    addrs.push(addr);
+                }
+
+                let _ = doc.start_sync(addrs).await;
+            }
+        }
 
         let metadata_bytes = self.blobs.get_bytes(metadata_entry.content_hash()).await.expect("failed to get metadata bytes from blob");
         let text_channels_bytes = self.blobs.get_bytes(text_channels_entry.content_hash()).await.expect("failed to get text_channels bytes from blob");
-        let voice_channels_bytes = self.blobs.get_bytes(voice_channels_entry.content_hash()).await.expect("failed to get voice_channels bytes from blob");
+        // let voice_channels_bytes = self.blobs.get_bytes(voice_channels_entry.content_hash()).await.expect("failed to get voice_channels bytes from blob");
 
         let metadata = serde_json::from_slice(&metadata_bytes).expect("failed to convert metadata bytes into json");
         let text_channels = serde_json::from_slice(&text_channels_bytes).expect("failed to convert text_channels bytes into json");
-        let voice_channels = serde_json::from_slice(&voice_channels_bytes).expect("failed to convert voice_channel bytes into json");
+        let voice_channels: HashMap<String, VoiceChannel> = serde_json::from_slice(&voice_channels_bytes).expect("failed to convert voice_channel bytes into json");
 
         let server = Server {
             creator_hash: "".to_string(), // only needed to update metadata
@@ -372,7 +464,16 @@ impl ServerDocs {
         let metadata: ServerMetadata = serde_json::from_slice(&metadata_bytes).expect("deserializing json failed");
         let ticket = doc.share(ShareMode::Write, Default::default()).await.expect("creating doc ticket failed");
         println!("doc ticket in server metadata: {:?}", ticket.to_string());
-        println!("metadata ticket saved in server: {:?}", metadata.ticket);
+        // docaaacaij3sihmgrcu5mgkgmn3bebjtvjqwodu7h4yxsl7n5csjwzd7z4aafrlzso4fudoxq7fliucavtwp6n62lkr2ztufpoja5dkpcjapivdyaaa
+        // println!("metadata: {:?}", metadata.id);
+        // let ticket = doc.share(ShareMode::Write, Default::default()).await.expect("creating doc ticket failed");
+        // let md = ServerMetadata {
+            // id: metadata.id,
+            // ticket: ticket.to_string(),
+            // name: metadata.name,
+            // pic: metadata.pic,
+            // creator_address: metadata.creator_address,
+        // };
         Ok(metadata)
     }
 
@@ -438,9 +539,9 @@ impl ServerDocs {
         println!("{:?}", voice_channel_id.to_string());
         println!("{:?}", user.to_string());
         let endpoint = Endpoint::builder().discovery_n0().alpns(vec![ROQ_ALPN.to_vec()]).bind().await?;
-        // let namespace_id = NamespaceId::from_str(id)?;
-        // let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
-        let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("could not get doc from ticket in add user to call");
+        let namespace_id = NamespaceId::from_str(id)?;
+        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        // let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("could not get doc from ticket in add user to call");
 
         let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"voice_channels".as_bytes()))
@@ -467,10 +568,10 @@ impl ServerDocs {
         println!("{:?}", id.to_string());
         println!("{:?}", voice_channel_id.to_string());
         println!("{:?}", user.to_string());
-        // let namespace_id = NamespaceId::from_str(id)?;
-        // let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        let namespace_id = NamespaceId::from_str(id)?;
+        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
 
-        let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("could not get doc from ticket in add user to call");
+        // let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("could not get doc from ticket in add user to call");
 
         let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"voice_channels".as_bytes()))
@@ -510,97 +611,571 @@ impl ServerDocs {
     // pub async fn set_current_server(&self, id: &str, app: tauri::AppHandle) -> Result<()> {
 
     //// SUBSCRIPTION IS NOT WORKING FIX WITH TICKET!
-    pub async fn set_current_server(&self, ticket_str: &str, app: tauri::AppHandle) -> Result<()> {
+    ///      when user1 (whoever exits app first) exits app and reopens while user2 is still connected, 
+    ///      server updates cannot be sent from that user1 to user2 after they rejoin,
+    ///      user1 can get updates from user2
+    ///      
+    // pub async fn set_current_server(&self, ticket_str: &str, app: tauri::AppHandle) -> Result<()> {
+    pub async fn set_current_server(&self, id: &str, app: tauri::AppHandle) -> Result<()> {
         println!("inside set_current_server");
-        // let namespace_id = NamespaceId::from_str(id)?;
-        let ticket = DocTicket::from_str(ticket_str).unwrap();
-        let (_doc, mut subscription) = self.docs.import_and_subscribe(ticket).await.expect("subscription failed");
+        let namespace_id = NamespaceId::from_str(id)?;
+        // let ticket = DocTicket::from_str(ticket_str).unwrap();
+        // let (_doc, mut subscription) = self.docs.import_and_subscribe(ticket).await.expect("subscription failed");
         // let doc = self.docs.import(ticket).await.expect("import failed");
-        // let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
-        // let mut subscription = doc.subscribe().await.expect("subscription failed");
+        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        let peers = doc.get_sync_peers().await.unwrap();
+        if peers.is_some() {
+            let mut addrs: Vec<NodeAddr> = vec![];
+            for peer in peers.unwrap() {
+                let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                addrs.push(addr);
+            }
+            doc.start_sync(addrs).await.unwrap();
+        }
+
+        // let subscription = doc.subscribe().await.expect("subscription failed");
+        let mut sub = doc.subscribe().await.unwrap();
 
         println!("after subscription in set_current_server");
         let app_handle = app.clone();
 
         let blobs = self.blobs.clone();
-
+        // let endpoint = self.router.endpoint();
+        let token = self.cancellation_token.clone().unwrap();
         tokio::spawn(async move {
-            while let Some(result) = subscription.next().await {
-                match result {
-                    // Ok(event) => match event {
-                    Ok(event) => {
-                        match &event {
-                            LiveEvent::InsertLocal { entry } => {
-                                let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
-                                let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
-                                let payload = serde_json::json!({
-                                    "event": format!("{:?}", event),
-                                    "data": data // or parse if structured
-                                });
-
-                                println!("updated entry payload: {:?}", payload.to_string());
-
-                                let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
-                            },
-                            LiveEvent::InsertRemote { from, entry, content_status } => {
-                                println!("NEW REMOTE CONTENT");
-                                println!("CONTENT STATUS: {:?} ", content_status);
-                                println!("FROM: {:?} ", from.to_string());
-                                // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
-                                let result = blobs.get_bytes(entry.content_hash()).await;
-                                match result {
-                                    Ok(bytes) => {
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        println!("Changed server, shutting down subscription task");
+                        return;
+                    }
+                    Some(result) = sub.next() => {
+                        println!("running subscription!!!");
+                        match result {
+                            Ok(event) => {
+                                match &event {
+                                    LiveEvent::InsertLocal { entry } => {
+                                        let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
                                         let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
                                         let payload = serde_json::json!({
                                             "event": format!("{:?}", event),
                                             "data": data // or parse if structured
                                         });
 
-                                        println!("REMOTE: updated entry payload: {:?}", payload.to_string());
-                                        let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
-                                    }
-                                    Err(e) => {
-                                        let payload = serde_json::json!({
-                                            "event": format!("{:?}", event),
-                                            "data": "missing data", // or parse if structured
-                                        });
+                                        println!("updated entry payload: {:?}", payload.to_string());
 
-                                        println!("REMOTE: updated entry payload: {:?}", payload.to_string());
                                         let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
-                                    }
-                                }
-                                // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                    },
+                                    LiveEvent::InsertRemote { from, entry, content_status } => {
+                                        // println!("NEW REMOTE CONTENT");
+                                        // println!("CONTENT STATUS: {:?} ", content_status);
+                                        // println!("FROM: {:?} ", from.to_string());
+                                        // // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
+                                        // if *content_status == ContentStatus::Missing {
+                                        //     println!("CONTENT MISSING! Not sending emit to run get server, but statying sync");
+                                        //     // let payload = serde_json::json!({
+                                        //     //     "event": format!("{:?}", event),
+                                        //     //     "data": "missing data" // or parse if structured
+                                        //     // });
+
+                                        //     // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                        //     // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                        //     // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
+                                        //     // This will attempt to re-fetch the content that the doc believes should be local.
+
+                                        //     let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                        //     println!("FIRST Sync Peers: {:?}", peers);
+                                        //     let mut addrs: Vec<NodeAddr> = vec![];
+                                        //     for peer in peers {
+                                        //         let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                        //         addrs.push(addr);
+                                        //     }
+
+                                        //     match doc.start_sync(addrs).await {
+                                        //         Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
+                                        //         Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+                                        //     }
+                                        //     let final_peers = doc.get_sync_peers().await.unwrap_or_default();
+                                        //     println!("Final Sync Peers: {:?}", final_peers);
+                                        // } else if *content_status == ContentStatus::Complete {
+                                        //     let result = blobs.get_bytes(entry.content_hash()).await;
+                                        //     match result {
+                                        //         Ok(bytes) => {
+                                                    // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                                    // let payload = serde_json::json!({
+                                                    //     "event": format!("{:?}", event),
+                                                    //     "data": data // or parse if structured
+                                                    // });
+
+                                                    // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                                    // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                        //         }
+                                        //         Err(e) => {
+                                        //             // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                        //             println!("Blobs get bytes error! Not sending emit to run get server");
+                                        //             eprintln!("❌ FATAL ERROR: Failed to get bytes for entry hash after ContentReady: {:?}", e);
+                                        //             // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
+                                        //             // This will attempt to re-fetch the content that the doc believes should be local.
+
+                                                    // let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                                    // let mut addrs: Vec<NodeAddr> = vec![];
+                                                    // for peer in peers {
+                                                    //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                                    //     addrs.push(addr);
+                                                    // }
+
+                                        //             match doc.start_sync(addrs).await {
+                                        //                 Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
+                                        //                 Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+                                        //             }
+                                        //             // let payload = serde_json::json!({
+                                        //             //     "event": format!("{:?}", event),
+                                        //             //     "data": "missing data" // or parse if structured
+                                        //             // });
+
+                                        //             // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                        //             // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+
+                                        //         }
+                                            // }
+                                        // } else {
+                                        //     print!("ELSE CONTENT STATUS: {:?}", content_status);
+                                        // }
+                                        const MAX_FETCH_ATTEMPTS: u8 = 10;
+                                        const RETRY_DELAY_MS: u64 = 1000;
+                                        // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
+                                        println!("📢 Remote entry received. Hash: {:?} is missing. Starting fetch loop.", entry.content_hash());
+
+                                        let mut attempts = 0;
+                                        
+                                        // Loop until the content is found locally or we hit the maximum attempts
+                                        // if blobs.has(entry.content_hash()).await.unwrap() {
+                                        if *content_status == ContentStatus::Complete {
+                                            let bytes = blobs.get_bytes(entry.content_hash()).await.unwrap();
+                                            let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                            let payload = serde_json::json!({
+                                                "event": format!("{:?}", event),
+                                                "data": data // or parse if structured
+                                            });
+
+                                            println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                            let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                        } else {
+                                            while !blobs.has(entry.content_hash()).await.unwrap_or(false) && attempts < MAX_FETCH_ATTEMPTS {
+                                                attempts += 1;
+                                                println!("⚠️ Fetch attempt {}/{}. Forcing doc sync...", attempts, MAX_FETCH_ATTEMPTS);
+                                                let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                                let mut addrs: Vec<NodeAddr> = vec![];
+                                                for peer in peers {
+                                                    let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                                    addrs.push(addr);
+                                                }
+                                                // 1. Force a sync: This re-initiates the content transfer request to the connected peer(s).
+                                                match doc.start_sync(addrs).await {
+                                                    Ok(_) => println!("INFO: Sync requested successfully."),
+                                                    Err(e) => eprintln!("ERROR: Sync request failed: {:?}", e),
+                                                }
+                                                
+                                                // 2. Wait for the transfer attempt to happen over the network.
+                                                // On a stable LAN, this is where the successful transfer should occur.
+                                                tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                                                
+                                                // 3. Check again: If successful, the loop breaks and ContentReady should fire.
+                                                if blobs.has(entry.content_hash()).await.unwrap_or(false) {
+                                                    println!("✅ Content successfully fetched on attempt {}!", attempts);
+                                                    let bytes = blobs.get_bytes(entry.content_hash()).await.unwrap();
+                                                    let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                                    let payload = serde_json::json!({
+                                                        "event": format!("{:?}", event),
+                                                        "data": data // or parse if structured
+                                                    });
+
+                                                    println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                                    let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                                    break; // Exit the InsertRemote handling
+                                                }
+                                            }
+                                            
+
+                                            if attempts >= MAX_FETCH_ATTEMPTS {
+                                                eprintln!("🛑 CRITICAL: Hash {:?} failed to fetch after {} attempts despite peer being present.", entry.content_hash(), MAX_FETCH_ATTEMPTS);
+                                                // You may want to log this as a hard error or try to restart the endpoint/doc.
+                                            }
+                                        }
+                                        
+                                        // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                        // let payload = serde_json::json!({
+                                        //     "event": format!("{:?}", event),
+                                        //     "data": data // or parse if structured
+                                        // });
+
+                                        // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                        // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                    },
+                                    LiveEvent::ContentReady { hash } => {
+                                        println!("    [    HASH IS READY    ]    ");
+                                        // let bytes = blobs.get_bytes(*hash).await.expect("failed to get bytes in Content Ready");
+                                        // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                        // println!("HASH DATA: {:?}", data);
+                                        // println!("DATA FROM HASH : {:?}", data);
+                                        // let payload = serde_json::json!({
+                                        //     "event": format!("{:?}", event),
+                                        //     "data": "missing data" // or parse if structured
+                                        // });
+
+                                        // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+                                        // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                        // let payload = serde_json::json!({
+                                        //     "event": format!("{:?}", event),
+                                        //     "data": data // or parse if structured
+                                        // });
+
+                                        // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+
+                                        match blobs.get_bytes(*hash).await {
+                                            Ok(bytes) => {
+                                                let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+                                                println!("DATA FROM HASH : {:?}", data);
+                                                
+                                                let payload = serde_json::json!({
+                                                    "event": format!("{:?}", event),
+                                                    "data": data 
+                                                });
+
+                                                println!("CONTENT READY: updated entry payload: {:?}", payload.to_string());
+                                                let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                            },
+                                            Err(e) => {
+                                                eprintln!("❌ FATAL ERROR: Failed to get bytes for hash {:?} after ContentReady: {:?}", hash, e);
+                                                
+                                                // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
+                                                // This will attempt to re-fetch the content that the doc believes should be local.
+
+                                                let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                                let mut addrs: Vec<NodeAddr> = vec![];
+                                                for peer in peers {
+                                                    let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                                    addrs.push(addr);
+                                                }
+
+                                                match doc.start_sync(addrs).await {
+                                                    Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
+                                                    Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+                                                }
+
+                                                // let payload = serde_json::json!({
+                                                //     "event": format!("{:?}", event),
+                                                //     "data": format!("content read failed, attempted sync: {:?}", e)
+                                                // });
+                                                // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+                                            }
+                                        }
+
+                                    },
+                                    LiveEvent::PendingContentReady => {
+                                        println!("    [    PENDING CONTENT IS READY    ]    ");
+                                        let voice_channels_entry_result = doc.get_one(Query::single_latest_per_key()
+                                            .key_exact(&"voice_channels".as_bytes()))
+                                            .await;
+                                        // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("blob get bytes failed");
+                                        // let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
+                                        // println!("Got Pending Content: {:?}", voice_channels);
+
+                                        match voice_channels_entry_result {
+                                            Ok(entry) => {
+                                                let e = entry.unwrap();
+                                                let result = blobs.get_bytes(e.content_hash()).await;
+                                                match result {
+                                                    Ok(bytes) => {
+                                                        println!("GOT BYTES!");
+                                                        let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
+                                                        println!("Got Pending Content: {:?}", voice_channels);
+                                                    }
+                                                    Err(e) => {
+                                                        println!("FAILED TO GET VOICE CHANNEL BYTES FROM LOCAL BLOB: {:?}", e);
+                                                        // let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                                        // let mut addrs: Vec<NodeAddr> = vec![];
+                                                        // for peer in peers {
+                                                        //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                                        //     addrs.push(addr);
+                                                        // }
+
+                                                        // let a = doc.start_sync(addrs).await;
+                                                        // println!("after start sync: {:?}", a);
+                                                        // let new_bytes = self.blobs.get_bytes(e.content_hash()).await.expect("failed to get voice channels bytes after sync");
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                println!("FAILED TO GET VOICE CHANNEL ENTRY : {:?}", e);
+                                                // let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                                // let mut addrs: Vec<NodeAddr> = vec![];
+                                                // for peer in peers {
+                                                //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                                //     addrs.push(addr);
+                                                // }
+
+                                                // let _ = doc.start_sync(addrs).await;
+                                            }
+                                        }
+
+                                    },
+                                    LiveEvent::NeighborUp(node_id) => {
+                                        println!("    [    LIVE EVENT: PEER UP    ]    ");
+                                        let node_addr = NodeAddr::new(*node_id);
+                                        doc.start_sync(vec![node_addr]).await.unwrap();
+                                    },
+                                    LiveEvent::NeighborDown(node_id) => {
+                                        println!("    [    LIVE EVENT: PEER DOWN    ]    ");
+                                    },
+                                    LiveEvent::SyncFinished(sync) => {
+                                        println!("    [    LIVE EVENT: SYNC FINISHED   ]    ");
+                                    },
+                                    _ => {},
+                                };
                             },
-                            LiveEvent::ContentReady { hash } => {
-                                println!("    [    LIVE EVENT: HASH IS READY    ]    ");
-                                let bytes = blobs.get_bytes(*hash).await.unwrap();
-                                let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
-                                println!("DATA FROM HASH: {:?}", data);
-                                let payload = serde_json::json!({
-                                    "event": format!("{:?}", event),
-                                    "data": data // or parse if structured
-                                });
-                                let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
-                            },
-                            LiveEvent::PendingContentReady  => {
-                                println!("    [   LIVE EVENT: Pending Content IS READY    ]    ");
-                            },
-                            LiveEvent::NeighborUp(_) => {
-                                println!("    [   LIVE EVENT: New Peer joined    ]    ");
-                            },
-                            LiveEvent::SyncFinished(sync) => {
-                                println!("    [   LIVE EVENT: sync finished    ]    ");
+                            Err(e) => {
+                                eprintln!("Error in subscription: {:?}", e);
                             }
-                            _ => {
-                                println!("    [   OTHER EVENT IDEK!   ]    ");
-                            },
-                        };
-                    },
-                    Err(e) => {
-                        eprintln!("Error in subscription: {:?}", e);
+                        }
                     }
                 }
-            }   
+            }
+
+            // while let Some(result) = subscription.next().await {
+            //     match result {
+            //         // Ok(event) => match event {
+            //         Ok(event) => {
+            //             match &event {
+            //                 LiveEvent::InsertLocal { entry } => {
+            //                     let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
+            //                     let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+            //                     let payload = serde_json::json!({
+            //                         "event": format!("{:?}", event),
+            //                         "data": data // or parse if structured
+            //                     });
+
+            //                     println!("updated entry payload: {:?}", payload.to_string());
+
+            //                     let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+            //                 },
+            //                 LiveEvent::InsertRemote { from, entry, content_status } => {
+            //                     println!("NEW REMOTE CONTENT");
+            //                     println!("CONTENT STATUS: {:?} ", content_status);
+            //                     println!("FROM: {:?} ", from.to_string());
+            //                     // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("failed to get entry bytes from blob");
+            //                     if *content_status == ContentStatus::Missing {
+            //                         println!("CONTENT MISSING! Not sending emit to run get server, but statying sync");
+            //                         // let payload = serde_json::json!({
+            //                         //     "event": format!("{:?}", event),
+            //                         //     "data": "missing data" // or parse if structured
+            //                         // });
+
+            //                         // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+            //                         // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+            //                         // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
+            //                         // This will attempt to re-fetch the content that the doc believes should be local.
+
+            //                         let peers = doc.get_sync_peers().await.unwrap().unwrap();
+            //                         let mut addrs: Vec<NodeAddr> = vec![];
+            //                         for peer in peers {
+            //                             let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+            //                             addrs.push(addr);
+            //                         }
+
+            //                         match doc.start_sync(addrs).await {
+            //                             Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
+            //                             Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+            //                         }
+            //                     } else if *content_status == ContentStatus::Complete {
+            //                         let result = blobs.get_bytes(entry.content_hash()).await;
+            //                         match result {
+            //                             Ok(bytes) => {
+            //                                 let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+            //                                 let payload = serde_json::json!({
+            //                                     "event": format!("{:?}", event),
+            //                                     "data": data // or parse if structured
+            //                                 });
+
+            //                                 println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+            //                                 let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+            //                             }
+            //                             Err(e) => {
+            //                                 // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+            //                                 println!("Blobs get bytes error! Not sending emit to run get server");
+            //                                 eprintln!("❌ FATAL ERROR: Failed to get bytes for entry hash after ContentReady: {:?}", e);
+            //                                 // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
+            //                                 // This will attempt to re-fetch the content that the doc believes should be local.
+
+            //                                 let peers = doc.get_sync_peers().await.unwrap().unwrap();
+            //                                 let mut addrs: Vec<NodeAddr> = vec![];
+            //                                 for peer in peers {
+            //                                     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+            //                                     addrs.push(addr);
+            //                                 }
+
+            //                                 match doc.start_sync(addrs).await {
+            //                                     Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
+            //                                     Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+            //                                 }
+            //                                 // let payload = serde_json::json!({
+            //                                 //     "event": format!("{:?}", event),
+            //                                 //     "data": "missing data" // or parse if structured
+            //                                 // });
+
+            //                                 // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+            //                                 // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+
+            //                             }
+            //                         }
+            //                     } else {
+            //                         print!("ELSE CONTENT STATUS: {:?}", content_status);
+            //                     }
+            //                     // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+            //                     // let payload = serde_json::json!({
+            //                     //     "event": format!("{:?}", event),
+            //                     //     "data": data // or parse if structured
+            //                     // });
+
+            //                     // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+            //                     // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+            //                 },
+            //                 LiveEvent::ContentReady { hash } => {
+            //                     println!("    [    HASH IS READY    ]    ");
+            //                     // let bytes = blobs.get_bytes(*hash).await.expect("failed to get bytes in Content Ready");
+            //                     // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+            //                     // println!("HASH DATA: {:?}", data);
+            //                     // println!("DATA FROM HASH : {:?}", data);
+            //                     // let payload = serde_json::json!({
+            //                     //     "event": format!("{:?}", event),
+            //                     //     "data": "missing data" // or parse if structured
+            //                     // });
+
+            //                     // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+
+            //                     // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+            //                     // let payload = serde_json::json!({
+            //                     //     "event": format!("{:?}", event),
+            //                     //     "data": data // or parse if structured
+            //                     // });
+
+            //                     // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+
+            //                     match blobs.get_bytes(*hash).await {
+            //                         Ok(bytes) => {
+            //                             let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+            //                             println!("DATA FROM HASH : {:?}", data);
+                                        
+            //                             let payload = serde_json::json!({
+            //                                 "event": format!("{:?}", event),
+            //                                 "data": data 
+            //                             });
+
+            //                             println!("CONTENT READY: updated entry payload: {:?}", payload.to_string());
+            //                             let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+            //                         },
+            //                         Err(e) => {
+            //                             eprintln!("❌ FATAL ERROR: Failed to get bytes for hash {:?} after ContentReady: {:?}", hash, e);
+                                        
+            //                             // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
+            //                             // This will attempt to re-fetch the content that the doc believes should be local.
+
+            //                             let peers = doc.get_sync_peers().await.unwrap().unwrap();
+            //                             let mut addrs: Vec<NodeAddr> = vec![];
+            //                             for peer in peers {
+            //                                 let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+            //                                 addrs.push(addr);
+            //                             }
+
+            //                             match doc.start_sync(addrs).await {
+            //                                 Ok(_) => println!("INFO: Triggered full document sync to repair missing content."),
+            //                                 Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+            //                             }
+
+            //                             // let payload = serde_json::json!({
+            //                             //     "event": format!("{:?}", event),
+            //                             //     "data": format!("content read failed, attempted sync: {:?}", e)
+            //                             // });
+            //                             // let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
+            //                         }
+            //                     }
+
+            //                 },
+            //                 LiveEvent::PendingContentReady => {
+            //                     println!("    [    PENDING CONTENT IS READY    ]    ");
+            //                     let voice_channels_entry_result = doc.get_one(Query::single_latest_per_key()
+            //                         .key_exact(&"voice_channels".as_bytes()))
+            //                         .await;
+            //                     // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("blob get bytes failed");
+            //                     // let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
+            //                     // println!("Got Pending Content: {:?}", voice_channels);
+
+            //                     match voice_channels_entry_result {
+            //                         Ok(entry) => {
+            //                             let e = entry.unwrap();
+            //                             let result = blobs.get_bytes(e.content_hash()).await;
+            //                             match result {
+            //                                 Ok(bytes) => {
+            //                                     println!("GOT BYTES!");
+            //                                     let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
+            //                                     println!("Got Pending Content: {:?}", voice_channels);
+            //                                 }
+            //                                 Err(e) => {
+            //                                     println!("FAILED TO GET VOICE CHANNEL BYTES FROM LOCAL BLOB BY IN GET SERVER: {:?}", e);
+            //                                     let peers = doc.get_sync_peers().await.unwrap().unwrap();
+            //                                     let mut addrs: Vec<NodeAddr> = vec![];
+            //                                     for peer in peers {
+            //                                         let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+            //                                         addrs.push(addr);
+            //                                     }
+
+            //                                     let a = doc.start_sync(addrs).await;
+            //                                     println!("after start sync: {:?}", a);
+            //                                     // let new_bytes = self.blobs.get_bytes(e.content_hash()).await.expect("failed to get voice channels bytes after sync");
+            //                                 }
+            //                             }
+            //                         }
+            //                         Err(e) => {
+            //                             println!("FAILED TO GET VOICE CHANNEL ENTRY IN GET SERVER: {:?}", e);
+            //                             let peers = doc.get_sync_peers().await.unwrap().unwrap();
+            //                             let mut addrs: Vec<NodeAddr> = vec![];
+            //                             for peer in peers {
+            //                                 let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+            //                                 addrs.push(addr);
+            //                             }
+
+            //                             let _ = doc.start_sync(addrs).await;
+            //                         }
+            //                     }
+
+            //                 },
+            //                 LiveEvent::NeighborUp(node_id) => {
+            //                     println!("    [    LIVE EVENT: PEER UP    ]    ");
+            //                     let node_addr = NodeAddr::new(*node_id);
+            //                     doc.start_sync(vec![node_addr]).await.unwrap();
+            //                 },
+            //                 LiveEvent::NeighborDown(node_id) => {
+            //                     println!("    [    LIVE EVENT: PEER DOWN    ]    ");
+            //                 },
+            //                 _ => {},
+            //             };
+            //         },
+            //         Err(e) => {
+            //             eprintln!("Error in subscription: {:?}", e);
+            //         }
+            //     }
+            // }   
         });
 
         Ok(())

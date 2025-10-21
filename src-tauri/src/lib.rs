@@ -28,7 +28,8 @@ async fn init_state(state: State<'_, Mutex<AppState>>) ->  Result<(), String>{
 async fn create_server(name: &str, pic: &str, creator_address: &str, state: State<'_, Mutex<AppState>>) ->  Result<String, String> {
     println!("Running create_server");
     let app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let id = db.create_server(name, pic, creator_address).await.map_err(|e| format!("could not create server: {e}"))?;
     Ok(id)
 }
@@ -38,7 +39,8 @@ async fn create_server(name: &str, pic: &str, creator_address: &str, state: Stat
 async fn get_server(id: &str, state: State<'_, Mutex<AppState>>) ->  Result<Server, String> {
     println!("Running get_server");
     let app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let mut db = db_arc.lock().await;
     let server = db.get_server(id).await.map_err(|e| format!("could not find server: {e}"))?;
     Ok(server)
 }
@@ -48,7 +50,8 @@ async fn get_server(id: &str, state: State<'_, Mutex<AppState>>) ->  Result<Serv
 async fn get_all_servers(state: State<'_, Mutex<AppState>>) ->  Result<Vec<ServerMetadata>, String>{
     println!("Running get_all_server");
     let app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let servers_list = db.get_all_servers().await.map_err(|e| format!("could not find server: {e}"))?;
     Ok(servers_list)
 }
@@ -58,7 +61,8 @@ async fn get_all_servers(state: State<'_, Mutex<AppState>>) ->  Result<Vec<Serve
 async fn update_server(id: &str, metadata: ServerMetadata, state: State<'_, Mutex<AppState>>) ->  Result<String, String>{
     println!("Running invite");
     let app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let ticket = db.update_server_metadata(id, metadata).await.map_err(|e| format!("could not find server: {e}"))?;
     Ok(ticket)
 }
@@ -67,7 +71,8 @@ async fn update_server(id: &str, metadata: ServerMetadata, state: State<'_, Mute
 async fn join_server(ticket: &str, state: State<'_, Mutex<AppState>>) ->  Result<String, String>{
     println!("Running join_server");
     let app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let server_id = db.join_server(ticket).await.map_err(|e| format!("could not find server/peer is not online: {e}"))?;
     Ok(server_id)
 }
@@ -77,7 +82,8 @@ async fn join_server(ticket: &str, state: State<'_, Mutex<AppState>>) ->  Result
 async fn invite(id: &str, state: State<'_, Mutex<AppState>>) ->  Result<String, String>{
     println!("Running invite");
     let app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let ticket = db.invite(id).await.map_err(|e| format!("could not find server: {e}"))?;
     Ok(ticket)
 }
@@ -94,7 +100,8 @@ async fn get_user(state: State<'_, Mutex<AppState>>) ->  Result<String, String> 
 async fn start_call(server_id: &str, voice_channel_id: &str, user: &str, app: tauri::AppHandle, state: State<'_, Mutex<AppState>>) ->  Result<(), String> {
     println!("Running start_call");
     let mut app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let endpoint = db.add_user_to_call(server_id, voice_channel_id, user).await.expect("adding user to voice channel doc failed");
     // let _ = app_state.call.start(endpoint, app).await.expect("call start failed");
     // let call_handler = CallHandler::new();
@@ -107,7 +114,8 @@ async fn start_call(server_id: &str, voice_channel_id: &str, user: &str, app: ta
 async fn join_call(server_id: &str, voice_channel_id: &str, user: &str, state: State<'_, Mutex<AppState>>) ->  Result<(), String> {
     println!("Running join_call");
     let mut app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let _ = db.add_user_to_call(server_id, voice_channel_id, user).await.expect("adding user to voice channel doc failed");
     let remote_pk_str = db.get_caller_id(server_id, voice_channel_id).await.expect("getting caller id failed");
     // let _ = app_state.call.join_new(&remote_pk_str).await.expect("call join failed");
@@ -130,7 +138,8 @@ async fn end_call(server_id: &str, voice_channel_id: &str, user: &str, state: St
     // let _ = app_state.call.leave_call().expect("leave call failed");
     // let _ = app_state.call.end().await;
     // let app_state2 = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let _ = db.remove_user_from_call(server_id, voice_channel_id, user).await.expect("removing user from call doc failed");
     // let _ = app_state.call.leave_call().expect("leave call failed");
     let _ = app_state.call.leave_call();
@@ -141,7 +150,8 @@ async fn end_call(server_id: &str, voice_channel_id: &str, user: &str, state: St
 async fn set_current_server(ticket_str: &str, app: tauri::AppHandle, state: State<'_, Mutex<AppState>>) ->  Result<(), String> {
     println!("Running set_current_server with ticket str: {:?}", ticket_str);
     let app_state = state.lock().await;
-    let db = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
     let _ = db.set_current_server(ticket_str, app).await.expect("set_current_server failed");
     Ok(())
 }

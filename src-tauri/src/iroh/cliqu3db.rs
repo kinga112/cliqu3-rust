@@ -669,7 +669,7 @@ impl ServerDocs {
                                     LiveEvent::InsertRemote { from, entry, content_status } => {
                                         const MAX_FETCH_ATTEMPTS: u8 = 10;
                                         const RETRY_DELAY_MS: u64 = 1000;
-                                        println!("📢 Remote entry received. Hash: {:?} is missing. Starting fetch loop.", entry.content_hash());
+                                        println!("Remote entry received. Hash: {:?} is missing. Starting fetch loop.", entry.content_hash());
 
                                         let mut attempts = 0;
                                         
@@ -687,7 +687,7 @@ impl ServerDocs {
                                         } else {
                                             while !blobs.has(entry.content_hash()).await.unwrap_or(false) && attempts < MAX_FETCH_ATTEMPTS {
                                                 attempts += 1;
-                                                println!("⚠️ Fetch attempt {}/{}. Forcing doc sync...", attempts, MAX_FETCH_ATTEMPTS);
+                                                println!("Fetch attempt {}/{}. Forcing doc sync...", attempts, MAX_FETCH_ATTEMPTS);
                                                 let peers = doc.get_sync_peers().await.unwrap().unwrap();
                                                 let mut addrs: Vec<NodeAddr> = vec![];
                                                 for peer in peers {
@@ -706,7 +706,7 @@ impl ServerDocs {
                                                 
                                                 // 3. Check again: If successful, the loop breaks and ContentReady should fire.
                                                 if blobs.has(entry.content_hash()).await.unwrap_or(false) {
-                                                    println!("✅ Content successfully fetched on attempt {}!", attempts);
+                                                    println!("Content successfully fetched on attempt {}!", attempts);
                                                     let bytes = blobs.get_bytes(entry.content_hash()).await.unwrap();
                                                     let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
                                                     let payload = serde_json::json!({
@@ -723,7 +723,7 @@ impl ServerDocs {
                                             
 
                                             if attempts >= MAX_FETCH_ATTEMPTS {
-                                                eprintln!("🛑 CRITICAL: Hash {:?} failed to fetch after {} attempts despite peer being present.", entry.content_hash(), MAX_FETCH_ATTEMPTS);
+                                                eprintln!("CRITICAL: Hash {:?} failed to fetch after {} attempts despite peer being present.", entry.content_hash(), MAX_FETCH_ATTEMPTS);
                                                 // You may want to log this as a hard error or try to restart the endpoint/doc.
                                             }
                                         }

@@ -97,9 +97,9 @@ export function DirectMessageNavButton(props: {chat: any}){
       <button onClick={changeDM} className="bg-off-black-500 px-2 py-1 w-full shrink hover:bg-off-black-400 rounded-lg">
         <div className="flex gap-4 place-items-center">
           <img className="w-12 h-12 rounded-md shrink-0 object-cover select-none" src={props.chat.profilePicture!} />
-          <div className="flex flex-col gap-[1px] items-start w-32">
-            <p className="truncate w-full text-xl">{from}</p>
-            <p className="truncate font-light w-full text-white text-opacity-50">{messageContent}</p>
+          <div className="flex flex-col w-32">
+            <p className="truncate w-full text-xl text-left">{from}</p>
+            <p className="truncate font-light w-full text-white text-opacity-50 text-left">{messageContent}</p>
             <Time timestamp={props.chat.msg.timestamp!} />
           </div>
         </div>
@@ -119,7 +119,7 @@ function Time(props: {timestamp: number}){
  
   return(
     <>
-      <p className="text-sm font-light text-white text-opacity-50">{timeString}</p>
+      <p className="text-sm text-left font-light text-white text-opacity-50">{timeString}</p>
     </>
   )
 }

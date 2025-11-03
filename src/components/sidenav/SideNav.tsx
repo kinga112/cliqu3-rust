@@ -5,10 +5,14 @@ import { OptionsMenuButton } from "./optionsMenu/OptionsMenuButton";
 import { invoke } from "@tauri-apps/api/core";
 import { tryCatch } from "../../tryCatch";
 import { ServerMetadata, ServerType } from "../../types/serverTypes";
+import { ProfileControls } from "../user/ProfileControls";
+import { useGlobalStore } from "../../state-management/globalStore";
 
 export function SideNav(){
   const [serverList, setServerList] = useState<any>([]);
   const [serverListLength, setServerListLength] = useState(0);
+  const setCurrentScreen = useGlobalStore(globals => globals.setCurrentScreen)
+  const setCurrentServer = useGlobalStore(globals => globals.setCurrentServer)
 
   useEffect(() => {
     fetchServers();
@@ -27,6 +31,11 @@ export function SideNav(){
     }
   };
 
+  function setScreenToDm(){
+    setCurrentScreen("DirectMessages")
+    setCurrentServer(null)
+  }
+
   // console.log("item.id + item.picture of first: " + serverList[1].id + serverList[1].picture)
   let serverListItems = serverList.map((item: ServerMetadata) => <ServerButton key={item.name + item.creator_address} metadata={item}/>);
 
@@ -38,7 +47,7 @@ export function SideNav(){
             <div className="flex flex-col gap-1.5">
               <button 
                 className="flex flex-col w-12 h-12 p-2.5 bg-deep-purple-300 rounded-xl justify-center place-items-center duration-200 hover:scale-105 z-10 select-none"
-                // onClick={() => {setServerId('')}
+                onClick={setScreenToDm}
               >
                 <img src={messageBubble} height={35} width={35}/>
               </button>
@@ -46,9 +55,9 @@ export function SideNav(){
             </div>
           </div>
           {serverListItems}
-          {/* <div className="p-1 absolute bottom-2 left-3">
+          <div className="p-1 absolute bottom-2 left-3">
             <ProfileControls/>
-          </div> */}
+          </div>
         </div>
         {/* FIX BELOW SO NOT SUPER SPECIFIC WITH THE DIMENSIONS BASED ON OTHER SCREENS */}
         <div className="overflow-hidden absolute top-0 w-20 h-52 select-none pointer-events-none">

@@ -1,28 +1,28 @@
-import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import "../App.css";
+import Home from "./Home";
+import { useUserStore } from "../state-management/userStore";
+import { SavedUsers } from "../components/login/SavedUsers";
+import { WalletConnect } from "../components/login/WalletConnect";
 
-function Login() {
-  const ran = useRef(false);
-
-  useEffect(() => {
-    initState();
-  }, [])
-
-  async function initState() {
-    if (ran.current) return;
-    ran.current = true;
-    console.log("INIT STATE");
-    await invoke("init_state");
-  }
+export default function Login(){
+  const authorized = useUserStore(user => user.authorized)
 
   return (
     <>
-      <div>
-        Login
-      </div>
+      {
+        authorized ?
+        <Home/> 
+        :
+        <div className="flex flex-row h-screen w-screen overflow-hidden p-0 bg-off-black-300 py-36 px-96">
+          <div className="flex flex-col relative space-y-5 place-items-center h-full w-full p-20 bg-deep-purple-300 rounded-4xl overflow-hidden">
+            <div className="text-6xl font-thin text-deep-purple-100 font-neuropol">
+              C&nbsp;L&nbsp;I&nbsp;Q&nbsp;U&nbsp;3
+            </div>
+            <SavedUsers/>
+            <WalletConnect/>
+          </div>
+        </div>
+      }
     </>
-  );
+  )
 }
 
-export default Login;

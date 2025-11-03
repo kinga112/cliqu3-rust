@@ -1,22 +1,9 @@
-use anyhow::{Result, Error};
 use anyhow;
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use iroh_roq::rtp::{header::Header, packet::Packet};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, Stream, StreamConfig};
-use iroh_roq::{VarInt, SendFlow};
-use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
-use bytes::Bytes;
-use opus::{Encoder, Decoder, Application, Channels};
-use tokio::sync::mpsc::Receiver;
-
-// use crate::call::encoder::OpusEncoder;
+use cpal::{Device, StreamConfig};
+use iroh_roq::SendFlow;
 use crate::call::encoder::OpusEncoder;
 
-// const MONO_20MS: usize = 48000 * 20 / 1000;
-const SAMPLE_RATE: u32 = 48_000;
-// const CHANNELS: usize = 2;
 const FRAME_SIZE: usize = 960; // 20ms @ 48kHz stereo
 
 pub struct AudioInput {

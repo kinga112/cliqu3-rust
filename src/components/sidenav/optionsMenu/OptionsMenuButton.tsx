@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import add_cropped from "../../../assets/icons/add-cropped.svg"
 import settings from "../../../assets/icons/settings.svg"
 import options from "../../../assets/icons/options.svg"
+import arrow from "../../../assets/icons/arrow.svg"
 import { invoke } from "@tauri-apps/api/core";
 import { tryCatch } from "../../../tryCatch";
 import { useGlobalStore } from "../../../state-management/globalStore";
@@ -13,6 +14,8 @@ export function OptionsMenuButton(){
   const optionsMenuButtonRef = useRef(null);
   outsideOptionsMenuAlerter(optionsMenuRef, optionsMenuButtonRef);
   
+  const setCurrentScreen = useGlobalStore(globals => globals.setCurrentScreen)
+  const setCurrentServer = useGlobalStore(globals => globals.setCurrentServer)
   const setShowCreateServerModal = useGlobalStore(globals => globals.setShowCreateServerModal)
   const showCreateServerModal = useGlobalStore(globals => globals.showCreateServerModal)
 
@@ -64,6 +67,12 @@ export function OptionsMenuButton(){
     }
   }
 
+  function setScreenToSettings(){
+    setCurrentScreen("Settings");
+    setCurrentServer(null);
+    setOptionsMenuVisibility('invisible');
+  }
+
   const buttonStyle = `flex gap-2 p-2 place-items-center h-12 
   bg-deep-purple-300 rounded-lg hover:bg-deep-purple-400 select-none`
 
@@ -86,11 +95,11 @@ export function OptionsMenuButton(){
           <button className={buttonStyle}
                   onClick={joinServer}
           >
-            <img src={add_cropped} height={25} width={25}></img>
+            <img className="-m-2 rotate-180" src={arrow} height={40} width={40}></img>
             <div className="font-semibold">Join</div>
           </button>
           <button className={buttonStyle}
-            // onClick={() => {setCurrentScreen('Settings'); setServerId(''); setOptionsMenuVisibility('invisible')}}
+            onClick={setScreenToSettings}
           >
             <img src={settings} height={25} width={25}></img>
             <div className="font-semibold">Settings</div>

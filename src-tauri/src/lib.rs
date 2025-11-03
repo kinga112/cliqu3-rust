@@ -10,14 +10,16 @@ use std::path;
 pub mod app_state;
 pub mod iroh;
 pub mod call;
+pub mod cache;
+pub mod config;
 
-use crate::{app_state::AppState, iroh::cliqu3db::{Cliqu3Db, Server, ServerDocs, ServerMetadata}};
+use crate::{app_state::AppState, iroh::cliqu3db::{Server, ServerDocs, ServerMetadata}};
 
 #[tauri::command]
 async fn init_state(state: State<'_, Mutex<AppState>>) ->  Result<(), String>{
     println!("Running init_state");
     let mut app_state = state.lock().await;
-    let path = path::PathBuf::from("C:/Users/kinga/Documents/cliqu3/iroh_data");
+    let path = path::PathBuf::from(config::BASE_FILE_LOCATION);
     // let db = Cliqu3Db::new(path).await.map_err(|e| format!("couldn't init cliqu3 db: {e}"))?;
     let db = ServerDocs::new(path).await.map_err(|e| format!("couldn't init cliqu3 db: {e}"))?;
     let _ = app_state.init_db(db);
@@ -32,6 +34,16 @@ async fn create_server(name: &str, pic: &str, creator_address: &str, state: Stat
     let db = db_arc.lock().await;
     let id = db.create_server(name, pic, creator_address).await.map_err(|e| format!("could not create server: {e}"))?;
     Ok(id)
+}
+
+#[tauri::command]
+async fn add_text_channel(id: &str, name: &str, text_channel_id: &str, state: State<'_, Mutex<AppState>>) ->  Result<(), String> {
+    println!("Running add_text_channel");
+    let app_state = state.lock().await;
+    let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
+    let db = db_arc.lock().await;
+    db.add_text_channel(id, name, text_channel_id).await.map_err(|e| format!("could not create server: {e}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -93,7 +105,8 @@ async fn get_user(state: State<'_, Mutex<AppState>>) ->  Result<String, String> 
     println!("Running get_user");
     let app_state = state.lock().await;
     println!("User: {:?}", app_state.user);
-    Ok(app_state.user.clone())
+    let user = app_state.user.clone().unwrap();
+    Ok(user)
 }
 
 #[tauri::command]
@@ -151,7 +164,7 @@ async fn set_current_server(ticket_str: &str, app: tauri::AppHandle, state: Stat
     println!("Running set_current_server with ticket str: {:?}", ticket_str);
     let app_state = state.lock().await;
     let db_arc = app_state.db.as_ref().expect("Database no initialized").clone();
-    let db = db_arc.lock().await;
+    let mut db = db_arc.lock().await;
     let _ = db.set_current_server(ticket_str, app).await.expect("set_current_server failed");
     Ok(())
 }
@@ -172,7 +185,9 @@ pub async fn run(){
              start_call,
              join_call,
              end_call,
-             set_current_server
+             set_current_server,
+            //  get_wc_uri,
+             add_text_channel,
         ])
         // .on_window_event(|window, event| match event {
         //     tauri::WindowEvent::CloseRequested { api, .. } => {

@@ -3,11 +3,13 @@ import { Dialog } from '@mui/material';
 import { useGlobalStore } from "../../../state-management/globalStore";
 import { tryCatch } from "../../../tryCatch";
 import { invoke } from "@tauri-apps/api/core";
+import { push } from "../../../push";
+import { useUserStore } from "../../../state-management/userStore";
 
 export function CreateServerModal(){
   const showCreateServerModal = useGlobalStore(globals => globals.showCreateServerModal);
   const setShowCreateServerModal = useGlobalStore(globals => globals.setShowCreateServerModal)
-
+  const address = useUserStore(user => user.address)
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [pic, setPic] = useState('');
@@ -39,10 +41,14 @@ export function CreateServerModal(){
     if(name == ''){
       setShowError(true);
     }else{
-      const creatorAddress = '0x123456789'
+      const creatorAddress = address
       const result = await tryCatch(invoke("create_server", { name, pic, creatorAddress }))
       if(!result.error){
         console.log("Created Server: ", result.data)
+        if(typeof result.data === "string"){
+          await push.createTextChannel(result.data, 'general', 'text channel', [])
+        }
+
       }else{
         console.log("FAIL")
       }

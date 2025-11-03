@@ -28,11 +28,37 @@
   --color-off-black-500: #1d1c1c;
   --color-off-black-600: #161616;
   --color-off-black-700: #0a0a0a;
+
+  --text-xxs: 10px;
+  --font-neuropol: 'Neuropol';
 }
 
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-overscroll {
+    overscroll-behavior: none;
+    overflow: hidden;
+    -webkit-overflow-scrolling: auto;
+  }
+  
+  
+}
+
+
+/* windows fix for webview dragging on x and y axis during scroll */
 html,
 body {
+  overflow: hidden;
   height: 100%;
+  position: fixed;
+  width: 100%;
 }
 
 ::-webkit-scrollbar {

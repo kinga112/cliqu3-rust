@@ -5,18 +5,21 @@ use std::str;
 use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
 use futures_lite::{Stream, StreamExt};
-use iroh::{NodeAddr, PublicKey, SecretKey};
+use iroh::discovery::dns::DnsDiscovery;
+use iroh::discovery::mdns::MdnsDiscovery;
+use iroh::discovery::pkarr::PkarrPublisher;
+use iroh::{discovery, NodeAddr, PublicKey, SecretKey};
 use iroh_blobs::store::mem::MemStore;
 use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
 use iroh_docs::api::Doc;
-use iroh_docs::engine::LiveEvent;
+use iroh_docs::engine::{self, Engine, LiveEvent};
 use iroh_docs::ContentStatus;
 use iroh_docs::{protocol::Docs, store::Query, AuthorId, DocTicket, NamespaceId, ALPN as DOCS_ALPN};
 use iroh::{protocol::Router, Endpoint};
 use iroh_blobs::{BlobsProtocol, store::fs::FsStore, ALPN as BLOBS_ALPN};
 use iroh_gossip::{net::Gossip, ALPN as GOSSIP_ALPN};
 use iroh_roq::{ALPN as ROQ_ALPN};
-use iroh::discovery::{Discovery, IntoDiscovery, };
+use iroh::discovery::{Discovery, IntoDiscovery};
 use serde::{Serialize, Deserialize};
 use tauri::Emitter;
 use tokio_util::sync::CancellationToken;
@@ -39,7 +42,7 @@ pub struct Server {
     pub metadata: ServerMetadata,
     // pub time_created: i64,
     // pub users: Vec<String>,
-    pub text_channels: Vec<String>,
+    pub text_channels: Vec<TextChannel>,
     // pub voice_channels: Vec<VoiceChannel>,
     pub voice_channels: HashMap<String, VoiceChannel>,
 }
@@ -61,144 +64,11 @@ pub struct VoiceChannel {
     active_users: Vec<String>,
 }
 
-pub struct Cliqu3Db {
-    docs: Docs,
-    // blobs: MemStore,
-    blobs: FsStore,
-    author: AuthorId,
-    // server_docs: Vec<Doc>,
-    // user_docs: vec!<Doc>,
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TextChannel {
+    name: String,
+    chat_id: String,
 }
-
-impl Cliqu3Db {
-    // Create a new ServersDb (a single document)
-    pub async fn new(path: path::PathBuf) -> Result<Self> {
-        let secret_key = SecretKey::from_str("very secrey key").unwrap();
-        // let endpoint = Endpoint::builder().discovery_n0().bind().await?;
-        // let disc = IntoDiscovery::into_discovery(self, context);
-        let endpoint = Endpoint::builder().secret_key(secret_key).relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
-
-        let gossip = Gossip::builder().spawn(endpoint.clone());
-
-        // let store = MemStore::new();
-
-        // let blobs_path = path::PathBuf::from("C:/Users/kinga/Documents/cliqu3/iroh_blobs");
-        // let docs_path = path::PathBuf::from("C:/Users/kinga/Documents/cliqu3/iroh_docs");
-        // tokio::fs::create_dir_all(&blobs_path).await?;
-        // tokio::fs::create_dir_all(&docs_path).await?;
-        // println!("blobs path: {:?}", blobs_path.clone());
-        println!("path: {:?}", path.clone());
-
-        let blobs = FsStore::load(&path).await?;
-        // let blobs = MemStore::default();
-
-        let docs = Docs::persistent(path)
-            .spawn(endpoint.clone(), (*blobs).clone(), gossip.clone())
-            .await?;
-
-        let author = docs.author_default().await?;
-
-        let router = Router::builder(endpoint.clone())
-            .accept(BLOBS_ALPN, BlobsProtocol::new(&blobs, endpoint.clone(), None))
-            .accept(GOSSIP_ALPN, gossip.clone())
-            .accept(DOCS_ALPN, docs.clone())
-            .spawn();
-
-        Ok(Self { docs, blobs, author })
-    }
-
-    pub async fn create_server(&self, server: Server) -> Result<String> {
-        // create server from server struct
-        let doc = self.docs.create().await?;
-        println!("server docs id: {:?}", doc.id());
-        let server_bytes = serde_json::to_vec(&server)?;
-        let s = match str::from_utf8(&server_bytes) {
-            Ok(v) => v,
-            Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-        };
-        let _ = doc.set_bytes(self.author.clone(), "server".to_string().into_bytes(), server_bytes.clone()).await?;
-        Ok(doc.id().to_string())
-    }
-
-    pub async fn update_server(&self, id: &str, server: Server,) -> Result<String> {
-        // update server with server id from server struct
-        let server_id = NamespaceId::from_str(id)?;
-        let doc = self.docs.open(server_id).await?.unwrap();
-        let server_bytes = serde_json::to_vec(&server)?;
-        println!("server docs id: {:?}", doc.id());
-        let s = match str::from_utf8(&server_bytes) {
-            Ok(v) => v,
-            Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-        };
-
-        // self.servers_doc.set_bytes(author_id.clone(), server.id.clone().into_bytes(), server_bytes.clone()).await?;
-        let _ = doc.set_bytes(self.author.clone(), "server".to_string().into_bytes(), server_bytes.clone()).await?;
-        Ok(doc.id().to_string())
-    }
-
-    pub async fn get_server(&self, id: &str) -> Result<Server> {
-        // get server by id
-        // println!("get server");
-        let namespace_id = NamespaceId::from_str(id)?;
-        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
-        // let entry = doc.get_one(Query::single_latest_per_key()
-        //                     .key_exact(&"server".as_bytes()))
-        //                     .await?.ok_or_else(|| anyhow!("Entry not found"))?;
-
-        let entry = doc.get_one(Query::single_latest_per_key()
-                            .key_exact(&"server".as_bytes()))
-                            .await?.ok_or_else(|| anyhow!("Entry not found"))?;
-
-        // println!("ENTRY HASH: {:?}", entry.content_hash());
-
-        let bytes = self.blobs.get_bytes(entry.content_hash()).await.unwrap();
-        let server = serde_json::from_slice(&bytes)?;
-        Ok(server)
-    }
-
-    pub async fn get_all_servers(&self) -> Result<Vec<Server>, anyhow::Error> {
-        let mut servers_list = Vec::new();
-        let mut list = self.docs.list().await?;
-        while let Some(result) = list.next().await {
-            match result {
-                Ok((namespace_id, capability)) => {
-                    // println!("Namespace: {:?}, Capability: {:?}", namespace_id, capability);
-                    let id = namespace_id.to_string();
-                    let server = self.get_server(id.as_str()).await?;
-                    servers_list.push(server);
-                }
-                Err(e) => {
-                    eprintln!("Error reading stream: {:?}", e);
-                }
-            }
-        }
-
-        // println!("servers list: {:?}", servers_list[0].name);
-        // while let Some(result) = list.next().await {
-            
-        // }
-        Ok(servers_list)
-    }
-
-    pub async fn invite(&self, id: &str) -> Result<String> {
-        println!("Running invite!");
-        let namespace_id = NamespaceId::from_str(id)?;
-        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
-        println!("invite doc id: {:?}", doc.id().to_string());
-        let ticket = doc.share(ShareMode::Read, AddrInfoOptions::RelayAndAddresses).await?;
-        println!("ticket: {:?}", ticket.to_string());
-        Ok(ticket.to_string())
-    }
-
-    pub async fn join_server(&self, ticket: &str) -> Result<String> {
-        let doc_ticket = DocTicket::from_str(ticket)?;
-        let server_doc = self.docs.import(doc_ticket.clone()).await?;
-        println!("Joined new server: {:?}", server_doc.id().to_string());
-        Ok(server_doc.id().to_string())
-    }
-}
-
-
 
 pub struct ServerDocs {
     docs: Docs,
@@ -222,7 +92,14 @@ impl ServerDocs {
         let bytes = [41, 114, 100, 25, 163, 215, 83, 118, 170, 9, 130, 194, 128, 166, 248, 242, 146, 19, 3, 56, 185, 96, 153, 203, 31, 235, 40, 51, 198, 193, 87, 149];
         let secret_key = SecretKey::from_bytes(&bytes);
         // println!("secret key: {:?}", secret_key.to_bytes());
-        let endpoint = Endpoint::builder().secret_key(secret_key).relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
+        // let endpoint = Endpoint::builder().secret_key(secret_key).relay_mode(iroh::RelayMode::Default).discovery_n0().bind().await?;
+        let endpoint = Endpoint::builder()
+            .secret_key(secret_key)
+            .relay_mode(iroh::RelayMode::Default)
+            .discovery(PkarrPublisher::n0_dns())
+            .discovery(DnsDiscovery::n0_dns())
+            .discovery(MdnsDiscovery::builder())
+            .bind().await?;
 
         let gossip = Gossip::builder().spawn(endpoint.clone());
 
@@ -244,8 +121,10 @@ impl ServerDocs {
 
         let author = docs.author_default().await?;
 
+        // let engine = Engine::spawn(endpoint, gossip, replica_store, bao_store, downloader, default_author_storage, protect_cb);
+
         let router = Router::builder(endpoint.clone())
-            .accept(BLOBS_ALPN, BlobsProtocol::new(&blobs, endpoint.clone(), None))
+            .accept(BLOBS_ALPN, BlobsProtocol::new(&blobs, None))
             .accept(GOSSIP_ALPN, gossip.clone())
             .accept(DOCS_ALPN, docs.clone())
             .spawn();
@@ -258,7 +137,7 @@ impl ServerDocs {
         let creator_hash = self.creator_hash().expect("creator hash failed");
         println!("hash: {:?}", creator_hash);
 
-        let text_channels = vec!["text channel 1".to_string(), "text channel 2".to_string()];
+        // let text_channels = vec![text_channel_id.to_string()];
         let voice_channel = VoiceChannel {
             name: "voice channel 1".to_string(),
             active_users: vec!(),
@@ -284,17 +163,17 @@ impl ServerDocs {
 
         let creator_hash_bytes = serde_json::to_vec(&creator_hash)?;
         let metadata_bytes = serde_json::to_vec(&metadata)?;
-        let text_channels_bytes = serde_json::to_vec(&text_channels)?;
+        // let text_channels_bytes = serde_json::to_vec(&text_channels)?;
         let voice_channels_bytes = serde_json::to_vec(&voice_channels)?;
 
         // let s = match str::from_utf8(&metadata_bytes) {
         //     Ok(v) => v,
         //     Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
         // };
-
+        // self.add_text_channel(&doc.id().to_string(), text_channel_id).await.expect("adding text channel failed");
         let _ = doc.set_bytes(self.author.clone(), "creator_hash".to_string().into_bytes(), creator_hash_bytes.clone()).await?;
         let _ = doc.set_bytes(self.author.clone(), "metadata".to_string().into_bytes(), metadata_bytes.clone()).await?;
-        let _ = doc.set_bytes(self.author.clone(), "text_channels".to_string().into_bytes(), text_channels_bytes.clone()).await?;
+        // let _ = doc.set_bytes(self.author.clone(), "text_channels".to_string().into_bytes(), text_channels_bytes.clone()).await?;
         let _ = doc.set_bytes(self.author.clone(), "voice_channels".to_string().into_bytes(), voice_channels_bytes.clone()).await?;
 
         Ok(doc.id().to_string())
@@ -338,6 +217,46 @@ impl ServerDocs {
         }
     }
 
+    pub async fn add_text_channel(&self, id: &str, name: &str, chat_id: &str) -> Result<()>{
+        let namespace_id = NamespaceId::from_str(id)?;
+        let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        // let text_channels_entry = doc.get_one(Query::single_latest_per_key()
+        //                     .key_exact(&"text_channels".as_bytes()))
+        //                     .await?.ok_or_else(|| anyhow!("Entry not found"))?;
+
+        let option = doc.get_one(Query::single_latest_per_key()
+                            .key_exact(&"text_channels".as_bytes()))
+                            .await.expect("failed to get entry");
+        match option {
+            Some(entry) => {
+                let bytes = self.blobs.get_bytes(entry.content_hash()).await.expect("failed to get text_channels");
+                let mut text_channels: Vec<TextChannel> = serde_json::from_slice(&bytes).expect("failed to convert text_channels bytes into json");
+                text_channels.push(TextChannel { name: name.to_string(), chat_id: chat_id.to_string() });
+                let new_bytes = serde_json::to_vec(&text_channels)?;
+                let _ = doc.set_bytes(self.author.clone(), "text_channels".to_string().into_bytes(), new_bytes.clone()).await.expect("set bytes failed 1");
+            }
+            None => {
+                let text_channels= vec![TextChannel { name: name.to_string(), chat_id: chat_id.to_string() }];
+                let text_channels_bytes = serde_json::to_vec(&text_channels).expect("serde failed");
+                let _ = doc.set_bytes(self.author.clone(), "text_channels".to_string().into_bytes(), text_channels_bytes.clone()).await.expect("set bytes failed 2");
+            }
+        }
+        
+        // let result = self.blobs.get_bytes(text_channels_entry.content_hash()).await;
+        // let mut text_channels: Vec<String> = [];
+        // match result {
+        //     Ok(text_channels) => {
+        //         let mut text_channels: Vec<String> = serde_json::from_slice(&text_channels_bytes).expect("failed to convert text_channels bytes into json");
+        //         text_channels.push(chat_id.to_string());
+        //     }
+        //     Err(e) => {
+        //         println!("No text channels?? : {:?}", e);
+        //     }
+        // }
+
+        Ok(())
+    }
+
     pub fn cancel(&mut self) {
         if self.cancellation_token.is_none() {
             self.cancellation_token = Some(CancellationToken::new());
@@ -349,20 +268,9 @@ impl ServerDocs {
         }
     }
 
-    pub async fn get_server(&mut self, id: &str) -> Result<Server> {
+    pub async fn get_server(&self, id: &str) -> Result<Server> {
         // get server by id
         println!("get server");
-        // let mut a = self.cancel();
-        // self.cancellation_token;
-        if self.cancellation_token.is_none() {
-            self.cancellation_token = Some(CancellationToken::new());
-        }else {
-            // self.cancellation_token.unwrap().cancel();
-            let token = self.cancellation_token.clone().unwrap();
-            token.cancel();
-            self.cancellation_token = None;
-            self.cancellation_token = Some(CancellationToken::new());
-        }
         let namespace_id = NamespaceId::from_str(id)?;
         let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
         // let doc = self.docs.import(DocTicket::from_str(id).unwrap()).await.expect("getting server doc from ticket failed");
@@ -385,55 +293,97 @@ impl ServerDocs {
                             .key_exact(&"text_channels".as_bytes()))
                             .await?.ok_or_else(|| anyhow!("Entry not found"))?;
 
-        // let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
-        //                     .key_exact(&"voice_channels".as_bytes()))
-        //                     .await?.ok_or_else(|| anyhow!("Entry not found"))?;
-
-        let voice_channels_entry_result = doc.get_one(Query::single_latest_per_key()
+        let voice_channels_entry = doc.get_one(Query::single_latest_per_key()
                             .key_exact(&"voice_channels".as_bytes()))
-                            .await;
+                            .await?.ok_or_else(|| anyhow!("Entry not found"))?;
 
-        let mut voice_channels_bytes = Bytes::from("");
+        // let voice_channels_entry_result = doc.get_one(Query::single_latest_per_key()
+        //                     .key_exact(&"voice_channels".as_bytes()))
+        //                     .await;
 
-        match voice_channels_entry_result {
-            Ok(entry) => {
-                let e = entry.unwrap();
-                let result = self.blobs.get_bytes(e.content_hash()).await;
-                match result {
-                    Ok(bytes) => {
-                        voice_channels_bytes = bytes;
-                    }
-                    Err(e) => {
-                        println!("FAILED TO GET VOICE CHANNEL BYTES FROM LOCAL BLOB BY IN GET SERVER: {:?}", e);
-                        let peers = doc.get_sync_peers().await.unwrap().unwrap();
-                        let mut addrs: Vec<NodeAddr> = vec![];
-                        for peer in peers {
-                            let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
-                            addrs.push(addr);
-                        }
 
-                        let a = doc.start_sync(addrs).await;
-                        println!("after start sync: {:?}", a);
-                        // let new_bytes = self.blobs.get_bytes(e.content_hash()).await.expect("failed to get voice channels bytes after sync");
-                    }
-                }
-            }
-            Err(e) => {
-                println!("FAILED TO GET VOICE CHANNEL ENTRY IN GET SERVER: {:?}", e);
+        const MAX_FETCH_ATTEMPTS: u8 = 10;
+        const RETRY_DELAY_MS: u64 = 1000;
+
+        let mut attempts = 0;
+        
+        if self.blobs.has(voice_channels_entry.content_hash()).await.unwrap() {
+            let bytes = self.blobs.get_bytes(voice_channels_entry.content_hash()).await.unwrap();
+            // let data: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert bytes into json");
+        } else {
+            println!("Remote entry received. Hash: {:?} is missing. Starting fetch loop.", voice_channels_entry.content_hash());
+            while !self.blobs.has(voice_channels_entry.content_hash()).await.unwrap_or(false) && attempts < MAX_FETCH_ATTEMPTS {
+                attempts += 1;
+                println!("Fetch attempt {}/{}. Forcing doc sync...", attempts, MAX_FETCH_ATTEMPTS);
                 let peers = doc.get_sync_peers().await.unwrap().unwrap();
                 let mut addrs: Vec<NodeAddr> = vec![];
                 for peer in peers {
                     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
                     addrs.push(addr);
                 }
+                // 1. Force a sync: This re-initiates the content transfer request to the connected peer(s).
+                match doc.start_sync(addrs).await {
+                    Ok(_) => println!("INFO: Sync requested successfully."),
+                    Err(e) => eprintln!("ERROR: Sync request failed: {:?}", e),
+                }
+                
+                tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
 
-                let _ = doc.start_sync(addrs).await;
+                if self.blobs.has(voice_channels_entry.content_hash()).await.unwrap_or(false) {
+                    println!("Content successfully fetched on attempt {}!", attempts);
+                    let bytes = self.blobs.get_bytes(voice_channels_entry.content_hash()).await.unwrap();
+                    break; // Exit the InsertRemote handling
+                }
+            }
+            
+
+            if attempts >= MAX_FETCH_ATTEMPTS {
+                eprintln!("CRITICAL: Hash {:?} failed to fetch after {} attempts despite peer being present.", voice_channels_entry.content_hash(), MAX_FETCH_ATTEMPTS);
+                // You may want to log this as a hard error or try to restart the endpoint/doc.
             }
         }
 
+        // let mut voice_channels_bytes = Bytes::from("");
+
+        // match voice_channels_entry_result {
+        //     Ok(entry) => {
+        //         let e = entry.unwrap();
+        //         let result = self.blobs.get_bytes(e.content_hash()).await;
+        //         match result {
+        //             Ok(bytes) => {
+        //                 voice_channels_bytes = bytes;
+        //             }
+        //             Err(e) => {
+        //                 println!("FAILED TO GET VOICE CHANNEL BYTES FROM LOCAL BLOB BY IN GET SERVER: {:?}", e);
+        //                 let peers = doc.get_sync_peers().await.unwrap().unwrap();
+        //                 let mut addrs: Vec<NodeAddr> = vec![];
+        //                 for peer in peers {
+        //                     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+        //                     addrs.push(addr);
+        //                 }
+
+        //                 let a = doc.start_sync(addrs).await;
+        //                 println!("after start sync: {:?}", a);
+        //                 // let new_bytes = self.blobs.get_bytes(e.content_hash()).await.expect("failed to get voice channels bytes after sync");
+        //             }
+        //         }
+        //     }
+        //     Err(e) => {
+        //         println!("FAILED TO GET VOICE CHANNEL ENTRY IN GET SERVER: {:?}", e);
+        //         let peers = doc.get_sync_peers().await.unwrap().unwrap();
+        //         let mut addrs: Vec<NodeAddr> = vec![];
+        //         for peer in peers {
+        //             let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+        //             addrs.push(addr);
+        //         }
+
+        //         let _ = doc.start_sync(addrs).await;
+        //     }
+        // }
+
         let metadata_bytes = self.blobs.get_bytes(metadata_entry.content_hash()).await.expect("failed to get metadata bytes from blob");
         let text_channels_bytes = self.blobs.get_bytes(text_channels_entry.content_hash()).await.expect("failed to get text_channels bytes from blob");
-        // let voice_channels_bytes = self.blobs.get_bytes(voice_channels_entry.content_hash()).await.expect("failed to get voice_channels bytes from blob");
+        let voice_channels_bytes = self.blobs.get_bytes(voice_channels_entry.content_hash()).await.expect("failed to get voice_channels bytes from blob");
 
         let metadata = serde_json::from_slice(&metadata_bytes).expect("failed to convert metadata bytes into json");
         let text_channels = serde_json::from_slice(&text_channels_bytes).expect("failed to convert text_channels bytes into json");
@@ -462,8 +412,10 @@ impl ServerDocs {
         let metadata_bytes = self.blobs.get_bytes(metadata_entry.content_hash()).await.expect("get bytes for blobs failed");
 
         let metadata: ServerMetadata = serde_json::from_slice(&metadata_bytes).expect("deserializing json failed");
-        let ticket = doc.share(ShareMode::Write, Default::default()).await.expect("creating doc ticket failed");
-        println!("doc ticket in server metadata: {:?}", ticket.to_string());
+        // let ticket = doc.share(ShareMode::Write, Default::default()).await.expect("creating doc ticket failed");
+        let ticket = doc.share(ShareMode::Write, AddrInfoOptions::RelayAndAddresses).await.unwrap();
+        println!("doc ticket in server metadata: {:?}", metadata.ticket);
+        println!("new doc ticket: {:?}", ticket.to_string());
         // docaaacaij3sihmgrcu5mgkgmn3bebjtvjqwodu7h4yxsl7n5csjwzd7z4aafrlzso4fudoxq7fliucavtwp6n62lkr2ztufpoja5dkpcjapivdyaaa
         // println!("metadata: {:?}", metadata.id);
         // let ticket = doc.share(ShareMode::Write, Default::default()).await.expect("creating doc ticket failed");
@@ -610,19 +562,36 @@ impl ServerDocs {
 
     // pub async fn set_current_server(&self, id: &str, app: tauri::AppHandle) -> Result<()> {
 
+    pub fn handle_subscription_task_token(&mut self) {
+        if self.cancellation_token.is_none() {
+            println!("no sub running, creating fresh token");
+            self.cancellation_token = Some(CancellationToken::new());
+        }else {
+            // self.cancellation_token.unwrap().cancel();
+            println!("canceling current sub task, and creating fresh token");
+            let token = self.cancellation_token.clone().unwrap();
+            token.cancel();
+            // self.cancellation_token = None;
+            self.cancellation_token = Some(CancellationToken::new());
+        }
+    }
+
     //// SUBSCRIPTION IS NOT WORKING FIX WITH TICKET!
     ///      when user1 (whoever exits app first) exits app and reopens while user2 is still connected, 
     ///      server updates cannot be sent from that user1 to user2 after they rejoin,
     ///      user1 can get updates from user2
     ///      
     // pub async fn set_current_server(&self, ticket_str: &str, app: tauri::AppHandle) -> Result<()> {
-    pub async fn set_current_server(&self, id: &str, app: tauri::AppHandle) -> Result<()> {
+    pub async fn set_current_server(&mut self, id: &str, app: tauri::AppHandle) -> Result<()> {
         println!("inside set_current_server");
+        self.handle_subscription_task_token();
         let namespace_id = NamespaceId::from_str(id)?;
         // let ticket = DocTicket::from_str(ticket_str).unwrap();
         // let (_doc, mut subscription) = self.docs.import_and_subscribe(ticket).await.expect("subscription failed");
         // let doc = self.docs.import(ticket).await.expect("import failed");
         let doc = self.docs.open(namespace_id).await.unwrap().expect("could not get server doc");
+        let status = doc.status().await.unwrap();
+        println!("doc status: {:?}", status);
         let peers = doc.get_sync_peers().await.unwrap();
         if peers.is_some() {
             let mut addrs: Vec<NodeAddr> = vec![];
@@ -634,7 +603,7 @@ impl ServerDocs {
         }
 
         // let subscription = doc.subscribe().await.expect("subscription failed");
-        let mut sub = doc.subscribe().await.unwrap();
+        let mut subscription = doc.subscribe().await.unwrap();
 
         println!("after subscription in set_current_server");
         let app_handle = app.clone();
@@ -649,7 +618,7 @@ impl ServerDocs {
                         println!("Changed server, shutting down subscription task");
                         return;
                     }
-                    Some(result) = sub.next() => {
+                    Some(result) = subscription.next() => {
                         println!("running subscription!!!");
                         match result {
                             Ok(event) => {
@@ -662,7 +631,7 @@ impl ServerDocs {
                                             "data": data // or parse if structured
                                         });
 
-                                        println!("updated entry payload: {:?}", payload.to_string());
+                                        // println!("updated entry payload: {:?}", payload.to_string());
 
                                         let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
                                     },
@@ -681,7 +650,7 @@ impl ServerDocs {
                                                 "data": data // or parse if structured
                                             });
 
-                                            println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+                                            // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
 
                                             let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
                                         } else {
@@ -714,7 +683,7 @@ impl ServerDocs {
                                                         "data": data // or parse if structured
                                                     });
 
-                                                    println!("REMOTE: updated entry payload: {:?}", payload.to_string());
+                                                    // println!("REMOTE: updated entry payload: {:?}", payload.to_string());
 
                                                     let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
                                                     break; // Exit the InsertRemote handling
@@ -769,11 +738,11 @@ impl ServerDocs {
                                                     "data": data 
                                                 });
 
-                                                println!("CONTENT READY: updated entry payload: {:?}", payload.to_string());
+                                                // println!("CONTENT READY: updated entry payload: {:?}", payload.to_string());
                                                 let _ = app_handle.emit("iroh_event", payload).expect("failed to emit iroh event");
                                             },
                                             Err(e) => {
-                                                eprintln!("❌ FATAL ERROR: Failed to get bytes for hash {:?} after ContentReady: {:?}", hash, e);
+                                                eprintln!("FATAL ERROR: Failed to get bytes for hash {:?} after ContentReady: {:?}", hash, e);
                                                 
                                                 // 💡 REPAIR STEP: Trigger a full content re-sync for all neighbors
                                                 // This will attempt to re-fetch the content that the doc believes should be local.
@@ -801,70 +770,97 @@ impl ServerDocs {
                                     },
                                     LiveEvent::PendingContentReady => {
                                         println!("    [    PENDING CONTENT IS READY    ]    ");
-                                        let voice_channels_entry_result = doc.get_one(Query::single_latest_per_key()
-                                            .key_exact(&"voice_channels".as_bytes()))
-                                            .await;
-                                        // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("blob get bytes failed");
-                                        // let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
-                                        // println!("Got Pending Content: {:?}", voice_channels);
+                                        // let voice_channels_entry_result = doc.get_one(Query::single_latest_per_key()
+                                        //     .key_exact(&"voice_channels".as_bytes()))
+                                        //     .await;
+                                        // // let bytes = blobs.get_bytes(entry.content_hash()).await.expect("blob get bytes failed");
+                                        // // let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
+                                        // // println!("Got Pending Content: {:?}", voice_channels);
 
-                                        match voice_channels_entry_result {
-                                            Ok(entry) => {
-                                                let e = entry.unwrap();
-                                                let result = blobs.get_bytes(e.content_hash()).await;
-                                                match result {
-                                                    Ok(bytes) => {
-                                                        println!("GOT BYTES!");
-                                                        let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
-                                                        println!("Got Pending Content: {:?}", voice_channels);
-                                                    }
-                                                    Err(e) => {
-                                                        println!("FAILED TO GET VOICE CHANNEL BYTES FROM LOCAL BLOB: {:?}", e);
-                                                        // let peers = doc.get_sync_peers().await.unwrap().unwrap();
-                                                        // let mut addrs: Vec<NodeAddr> = vec![];
-                                                        // for peer in peers {
-                                                        //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
-                                                        //     addrs.push(addr);
-                                                        // }
+                                        // match voice_channels_entry_result {
+                                        //     Ok(entry) => {
+                                        //         let e = entry.unwrap();
+                                        //         let result = blobs.get_bytes(e.content_hash()).await;
+                                        //         match result {
+                                        //             Ok(bytes) => {
+                                        //                 println!("GOT BYTES!");
+                                        //                 let voice_channels: serde_json::Value = serde_json::from_slice(&bytes).expect("failed to convert voice_channel bytes into json");
+                                        //                 println!("Got Pending Content: {:?}", voice_channels);
+                                        //             }
+                                        //             Err(e) => {
+                                        //                 println!("FAILED TO GET VOICE CHANNEL BYTES FROM LOCAL BLOB: {:?}", e);
+                                        //                 // let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                        //                 // let mut addrs: Vec<NodeAddr> = vec![];
+                                        //                 // for peer in peers {
+                                        //                 //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                        //                 //     addrs.push(addr);
+                                        //                 // }
 
-                                                        // let a = doc.start_sync(addrs).await;
-                                                        // println!("after start sync: {:?}", a);
-                                                        // let new_bytes = self.blobs.get_bytes(e.content_hash()).await.expect("failed to get voice channels bytes after sync");
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                println!("FAILED TO GET VOICE CHANNEL ENTRY : {:?}", e);
-                                                // let peers = doc.get_sync_peers().await.unwrap().unwrap();
-                                                // let mut addrs: Vec<NodeAddr> = vec![];
-                                                // for peer in peers {
-                                                //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
-                                                //     addrs.push(addr);
-                                                // }
+                                        //                 // let a = doc.start_sync(addrs).await;
+                                        //                 // println!("after start sync: {:?}", a);
+                                        //                 // let new_bytes = self.blobs.get_bytes(e.content_hash()).await.expect("failed to get voice channels bytes after sync");
+                                        //             }
+                                        //         }
+                                        //     }
+                                        //     Err(e) => {
+                                        //         println!("FAILED TO GET VOICE CHANNEL ENTRY : {:?}", e);
+                                        //         // let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                        //         // let mut addrs: Vec<NodeAddr> = vec![];
+                                        //         // for peer in peers {
+                                        //         //     let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                        //         //     addrs.push(addr);
+                                        //         // }
 
-                                                // let _ = doc.start_sync(addrs).await;
-                                            }
-                                        }
+                                        //         // let _ = doc.start_sync(addrs).await;
+                                        //     }
+                                        // }
 
                                     },
                                     LiveEvent::NeighborUp(node_id) => {
                                         println!("    [    LIVE EVENT: PEER UP    ]    ");
-                                        let node_addr = NodeAddr::new(*node_id);
-                                        doc.start_sync(vec![node_addr]).await.unwrap();
+                                        // let node_addr = NodeAddr::new(*node_id);
+                                        // doc.start_sync(vec![node_addr]).await.unwrap();
+                                        let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                        let mut addrs: Vec<NodeAddr> = vec![];
+                                        for peer in peers {
+                                            let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                            addrs.push(addr);
+                                        }
+
+                                        match doc.start_sync(addrs).await {
+                                            Ok(_) => println!("Peer Joined: Start Sync"),
+                                            Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+                                        }
                                     },
                                     LiveEvent::NeighborDown(node_id) => {
                                         println!("    [    LIVE EVENT: PEER DOWN    ]    ");
+                                        let peers = doc.get_sync_peers().await.unwrap().unwrap();
+                                                let mut addrs: Vec<NodeAddr> = vec![];
+                                                for peer in peers {
+                                                    let addr = NodeAddr::new(PublicKey::from_bytes(&peer).unwrap());
+                                                    addrs.push(addr);
+                                                }
+
+                                                match doc.start_sync(addrs).await {
+                                                    Ok(_) => println!("Peer Left: Start Sync"),
+                                                    Err(sync_e) => eprintln!("WARNING: Failed to trigger document sync: {:?}", sync_e),
+                                                }
                                     },
                                     LiveEvent::SyncFinished(sync) => {
                                         println!("    [    LIVE EVENT: SYNC FINISHED   ]    ");
                                     },
-                                    _ => {},
+                                    _ => {
+                                        
+                                    },
                                 };
-                            },
+                            }
                             Err(e) => {
                                 eprintln!("Error in subscription: {:?}", e);
                             }
                         }
+                        // println!("");
+                        // println!("   [    AFTER SUBSCRIPTION    ]   ");
+                        // println!("");
                     }
                 }
             }
@@ -1097,7 +1093,6 @@ impl ServerDocs {
             //     }
             // }   
         });
-
         Ok(())
     }
 }

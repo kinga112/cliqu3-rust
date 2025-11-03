@@ -5,20 +5,20 @@ use anyhow::{Ok, Result};
 use tokio::sync::Mutex;
 
 pub struct AppState {
-    pub user: String,
+    pub user: Option<String>,
     // pub db: Option<Arc<Cliqu3Db>>,
     pub db: Option<Arc<Mutex<ServerDocs>>>,
     // pub call: Call,
     pub call: CallHandler,
+    // pub wc: WalletConnectHandler,
 }
 
 impl AppState {
     pub fn default() -> Self {
-        let user = "".to_string();
-        let db = None;
         // let call = Call::new();
         let call = CallHandler::new();
-        Self { user, db, call }
+        // let wc = WalletConnectHandler::new();
+        Self { user: None, db: None, call }
     }
 
     // pub fn init_db(&mut self, db: Cliqu3Db) -> Result<()> {
@@ -30,4 +30,14 @@ impl AppState {
         self.db = Some(Arc::new(Mutex::new(db)));
         Ok(())
     }
+
+    pub fn init_user(&mut self, user: String) {
+        self.user = Some(user);
+    }
+
+    // pub async fn get_wc_uri(&self, uri: String) -> String {
+    //     // self.wc_uri = Some(uri);
+    //     let uri = self.wc.get_uri().await.expect("couldnt get uri");
+    //     uri
+    // }
 }

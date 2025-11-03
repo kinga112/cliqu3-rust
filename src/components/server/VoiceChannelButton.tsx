@@ -6,7 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 
 export function VoiceChannelButton(props: { ticket: string, id: string, name: string, active_users: string[]}){
-  let currentScreen = useGlobalStore(globals => globals.currentScreen);
+  let currentServer = useGlobalStore(globals => globals.currentServer);
   console.log("props active users:", props.active_users);
   const setCurrentVoiceChannel = useGlobalStore(globals => globals.setCurrentVoiceChannel);
 
@@ -17,7 +17,7 @@ export function VoiceChannelButton(props: { ticket: string, id: string, name: st
     }else{
       console.log("start call: ", props.ticket, props.id, 'Test User 1')
       const user = "Test User 1";
-      const result = await tryCatch(invoke("start_call", { serverId: currentScreen?.metadata.id, voiceChannelId: props.id, user }));
+      const result = await tryCatch(invoke("start_call", { serverId: currentServer!.metadata.id, voiceChannelId: props.id, user }));
       if(!result.error){
         console.log("RESULT DATA: ", result.data)
       }
@@ -27,7 +27,7 @@ export function VoiceChannelButton(props: { ticket: string, id: string, name: st
 
   async function joinCall(){
     const user = "Test User 2";
-    const result = await tryCatch(invoke("join_call", { serverId: currentScreen?.metadata.id, voiceChannelId: props.id, user }));
+    const result = await tryCatch(invoke("join_call", { serverId: currentServer!.metadata.id, voiceChannelId: props.id, user }));
     if(!result.error){
       console.log("RESULT DATA: ", result.data)
     }
@@ -35,7 +35,7 @@ export function VoiceChannelButton(props: { ticket: string, id: string, name: st
 
   async function endCall(user: string){
     console.log("end call: ", props.ticket, props.id, user)
-    const serverId = currentScreen?.metadata.id;
+    const serverId = currentServer!.metadata.id;
     const voiceChannelId = props.id;
     const result = await tryCatch(invoke("end_call", { serverId, voiceChannelId, user }));
     if(!result.error){

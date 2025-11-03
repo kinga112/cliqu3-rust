@@ -326,6 +326,7 @@ export class Push {
     const history = await this.api!.chat.history(chatId, {reference: reference, limit: 30})
     
     let fetchedMessages: Message[] = []
+    let reactions: {emoji: string, from: string, reference: string}[] = []
     let lastReadCid: string | null = null
 
     console.log("REF FOR FETCH: ", reference)
@@ -372,8 +373,10 @@ export class Push {
 
       if(pushMsg.messageType == 'Reaction'){
         console.log("THIS IS A REACTION FETCHED FROM PUSH")
-        console.log("reaction message: ", pushMsg)
-        addOrRemoveReaction(pushMsg.messageContent, from, pushMsg.messageObj.reference)
+        console.log("reaction: ", pushMsg.messageContent)
+        console.log("reference: ", pushMsg.messageObj.reference)
+        reactions.push({emoji: pushMsg.messageContent, from: from, reference: pushMsg.messageObj.reference})
+        // addOrRemoveReaction(pushMsg.messageContent, from, pushMsg.messageObj.reference)
         // cache2.updateReactions(pushMsg.messageContent, from, pushMsg.messageObj.reference)
       }else{
         // let content: Content | ReferenceContent = { type: pushMsg.messageType, content: pushMsg.messageContent }
@@ -416,7 +419,7 @@ export class Push {
 
         }else{
           console.log("FETCHED MESSAGE NOT REPLY OR REACTION")
-          console.log("reaction message: ", pushMsg)
+          console.log("message: ", pushMsg)
         }
         const message: Message = {
           id: randomId,
@@ -439,6 +442,9 @@ export class Push {
     console.log("reference before return: " + cid)
     console.log("FETCHED MESSAGES with true: ", fetchedMessages)
     appendNewMessages(fetchedMessages)
+    reactions.map((reaction: {emoji: string, from: string, reference: string}) => {
+      addOrRemoveReaction(reaction.emoji, reaction.from, reaction.reference)
+    })
     console.log("BEFORE RETURN ELSE")
     return [true, cid, lastReadCid]
   }

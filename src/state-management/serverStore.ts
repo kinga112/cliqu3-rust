@@ -73,10 +73,11 @@ export const useServerStore = create<ServerType & Action>((set) => ({
     )
   })),
   addOrRemoveReaction: (emoji: string, user: string, cid: string) => set((server: ServerType) => {
-    console.log("Updating reactions for message:", cid, "with emoji:", emoji, "by user:", user);
+    // console.log("Updating reactions for message:", cid, "with emoji:", emoji, "by user:", user);
+    console.log("inside add or remove reaction: server.messages:", server.messages)
     const updatedMessages = server.messages.map((msg: Message) => {
+      console.log("ADD OR REMOVE REACTION: MSG.CID: " + msg.cid + " REACTION REFERENCE: " + cid)
       if (msg.cid !== cid) return msg; // Skip messages that don’t match
-  
       // Ensure reactions object exists
       const reactions = msg.reactions || {};
   

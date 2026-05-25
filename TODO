@@ -1,0 +1,19 @@
+1. Add wallet param to ServerDocs for multi user setup. Wallet param appends to path, seperating each users servers.
+2. Figure out init state for app/if will work after adding wallet param to ServerDocs (needed to fix login after logout)
+3. Klipy GIFs do not work in DMs??
+4. Update State when adding new Server/Channel successfully
+5. Add year for Messages (maybe when last message is over 1 month old) / DM Nav (Somewhat done, but probably needs polishing)
+6. optimize whole app. Monitor performace in dev tools, emojis seem to take a bit of loading (interactions and bottom bar)
+7. Virtualize message list (50 messages, or scroll height to figure out how much to virtualize)
+8. Upgrade to Media over QUIC instead of RTP over QUIC for voice/video calls (iroh-live example using MOQ)
+9. Store session metadata in localStorage / cookie (user, current screen (server, chatId))
+10. Add "stay logged in" choice on login
+11. Create flow diagram for app, make the flow SIMPLE!
+12. Remake login screen. Dont save previous accounts, only save last one, if they log out, remove PK, if saved by user in keyring.
+13. Switch to XMTP for messages (need to incorporate fees for users so XMTP network fee doesnt land on me... about $1 for 20,000 messages)
+14. Integrate Lens or ENS for profiles
+15. Remake UserInfoLarge
+16. Integrate ENS search for each user in group, store dict of Inbox Id (XMTP) -> profile lookup in app state
+    (easier to fetch data with inbox id, add address to profile dict)
+17. Cache profile dict in Moka
+18. Update Front End State when creating a new server. Add that server to state once success is received from rust

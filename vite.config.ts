@@ -6,16 +6,26 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  base: "./", 
   plugins: [
     react(), 
     tailwindcss(),
   ],
   optimizeDeps: {
+    exclude: [
+      "@xmtp/wasm-bindings", 
+      "@xmtp/browser-sdk",
+      "@xmtp/user-preferences-bindings"
+    ],
+    include: ["protobufjs/minimal"],
     esbuildOptions: {
       define: {
         global: 'globalThis'
       },
     }
+  },
+  alias: {
+    'react-virtualized/List': 'react-virtualized/dist/es/List',
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

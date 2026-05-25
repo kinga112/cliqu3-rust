@@ -1,6 +1,6 @@
 // Import Push SDK & Ethers
 // import { PushAPI, CONSTANTS } from '@pushprotocol/restapi';
-import { ethers } from 'ethers';
+// import { ethers } from 'ethers';
 import { CONSTANTS, IUser, PushAPI, UserProfile } from '@pushprotocol/restapi/src';
 import { useUserStore } from './state-management/userStore';
 import { useServerStore } from "./state-management/serverStore"
@@ -14,6 +14,8 @@ import { useGlobalStore } from "./state-management/globalStore";
 import { useDirectMessageStore } from "./state-management/dmStore";
 import { tryCatch } from './tryCatch';
 import { invoke } from '@tauri-apps/api/core';
+import { addLastReadCidInCache, addMessagesToCache, getLastReadCidInCache, updateReactionInCache } from './cache';
+// import { update } from '@pushprotocol/restapi/src/lib/space/update';
 
 export class Push {
   api: PushAPI | undefined;
@@ -23,6 +25,7 @@ export class Push {
     this.api = api
     console.log("USER ACOUNT: " + this.api.account)
     this.stream = await this.initStream()
+    console.log("STREAM IN INIT API: ", this.stream)
   }
 
   blockUser(address: string){
@@ -91,6 +94,7 @@ export class Push {
 
   async createTextChannel(serverId: string, name: string, description: string, userAddresses: Array<string>){
     console.log("CREATING NEW CHAT CHANNEL", this.api!.account)
+    console.log("userAddresses: ", userAddresses)
     const newChannel = await this.api!.chat.group.create(
       name, {
         description: description,
@@ -136,11 +140,11 @@ export class Push {
     const address = useUserStore.getState().address
     console.log("address on send image:", address)
     let msg: any = { type: "MediaEmbed", content: url }
-    let r = null
+    // let r = null
     const reply = useServerStore.getState().reply;
     if(reply){
       msg = { type: "Reply", content: msg, reference: reply.reference }
-      r =  { from: reply.from, message: reply.message, reference: reply.reference }
+      // r =  { from: reply.from, message: reply.message, reference: reply.reference }
     }
     const randomId = uuidv4();
     const message: Message = {
@@ -158,7 +162,7 @@ export class Push {
     appendMessage(message)
     setReply(null)
 
-    const response = await this.api!.chat.send(chatId, msg);
+    await this.api!.chat.send(chatId, msg);
   }
 
   async fetchChats(){
@@ -172,8 +176,9 @@ export class Push {
   ////////////////
 
   async initStream(): Promise<PushStream | undefined> {
+    // console.log("INITIALIZING STREAM!")
     try {
-      console.log("INITIALIZING STREAM")
+      // console.log("INITIALIZING STREAM")
       const stream = await this.api!.initStream(
         [
           CONSTANTS.STREAM.CHAT, // Listen for chat messages
@@ -206,8 +211,8 @@ export class Push {
         const currentScreen = useGlobalStore.getState().currentScreen;
         const currentDM = useDirectMessageStore.getState().currentDM;
         const currentTextChannel = useServerStore.getState().currentTextChannel;
-        const textChannel = useServerStore.getState().textChannels;
-        const setTextChannels = useServerStore.getState().setTextChannels;
+        // const textChannel = useServerStore.getState().textChannels;
+        // const setTextChannels = useServerStore.getState().setTextChannels;
         console.log("STREAM GOT NEW MESSAGE!!! ", stream?.uid)
 
         const randomId = uuidv4();
@@ -222,8 +227,9 @@ export class Push {
         if(pushMsg.message.type == 'Reaction'){
           if(pushMsg.origin != 'self' && !pushMsg.from.includes(this.api!.account.toLowerCase())){
             addOrRemoveReaction(pushMsg.message.content, from, pushMsg.message.reference)
+            updateReactionInCache(pushMsg.chatId, pushMsg.message.reference, pushMsg.message.content, from)
           }
-          console.log("ADD OR REMOVE REACTION: ", pushMsg.message)
+          // console.log("ADD OR REMOVE REACTION: ", pushMsg.message)
           // update message in cache with reaction
           // cache2.updateReactions(pushMsg.message.content, from, pushMsg.message.reference)
         }else{
@@ -288,6 +294,7 @@ export class Push {
           // Use add message to cache if not Reaction, seperate function for reaction
           console.log("BEFORE MESSAGE ADD")
           // cache2.addMessage(message)
+          addMessagesToCache(chatId, [message])
           console.log("AFTER MESSAGE ADD")
           // let tempTextChannels: TextChannel[] = []
           console.log("MESSAGE ID: ", message.chatId)
@@ -311,6 +318,7 @@ export class Push {
         // from history will middle messages get lost if stream updates last read message cid? Yes... big issue :(((
         // cache2.updateLastReadMessageCid(pushMsg.chatId, pushMsg.reference);
       });
+      console.log("stream initialized:", stream.uid)
       return stream
     } catch (error) {
       console.error('Error on Stream Init:', error);
@@ -321,71 +329,73 @@ export class Push {
   async getHistory(chatId: string, reference: string | null = null): Promise<[boolean, string | null, string | null]>{
     console.log("Fetching Messages! New Fetch History")
     const appendNewMessages = useServerStore.getState().appendNewMessages;
+    const appendOldMessages = useServerStore.getState().appendOldMessages;
     const addOrRemoveReaction = useServerStore.getState().addOrRemoveReaction;
-    // const channel = await cache2.fetchChannel(chatId)
-    const history = await this.api!.chat.history(chatId, {reference: reference, limit: 30})
-    
+    const lastReadCidInCache = await getLastReadCidInCache(chatId);
+    const history = await this.api?.chat.history(chatId, {reference: reference, limit: 30})
+
+    if(history == undefined){
+      console.log("push api reset.. returning: ", this.api?.account)
+      return [false, null, null]
+    }
+
     let fetchedMessages: Message[] = []
     let reactions: {emoji: string, from: string, reference: string}[] = []
     let lastReadCid: string | null = null
 
-    console.log("REF FOR FETCH: ", reference)
     if(reference == null){
+      console.log("Reference is null, setting last read cid from first message in history", history[0].cid)
       try{
         lastReadCid = history[0].cid
-        // if(channel.lastReadMessageCid == lastReadCid){
-        //   console.log("first message is last read CID")
-        //   return [false, null, null]
-        // }
-        console.log("setting last read cid in fetch: " + lastReadCid)
+        if(lastReadCid != null){
+          addLastReadCidInCache(chatId, lastReadCid);
+        }
+        // console.log("setting last read cid in fetch: " + lastReadCid)
       }catch{
-        console.log("new channel so no messages yet... so no history.. duhh")
+        console.log("new channel so no messages yet... so no history.. duhh returning...")
         return [false, null, null]
       }
     }
-    
+
     let cid = ''
     var i = 0
     for(i; i<history.length;i++){
       const pushMsg = history[i]
-      console.log("PushMsg:", pushMsg)
+      if(pushMsg.cid == reference){
+        console.log("Reference matched in loop, skipping message cid:", pushMsg.cid)
+        continue
+      }
       const randomId = uuidv4();
       const from: string = pushMsg.fromDID.split(':')[1].toLowerCase()
-
-      console.log(i)
-      // console.log(pushMsg)
-
       if(i == (history.length - 1)){
         cid = pushMsg.cid
       }
-      
-      // console.log("LAST MESSAGE READ: ", channel.lastReadMessageCid)
-      
-      // if(channel.lastReadMessageCid == pushMsg.cid){
-      //   console.log("This message CID is last Read mesasge CID: ", pushMsg)
-      //   console.log("FETCHED MESSAGES with false in reverse ", fetchedMessages.reverse())
-      //   appendNewMessages(fetchedMessages)
-      //   // console.log("BEFORE RETURN IF")
-      //   return [false, null, lastReadCid]
-      // }else{
-      //   console.log("update last read message cid after while loop of fetch finishes.")
-      // }
+      if(lastReadCidInCache == pushMsg.cid){
+        console.log("No new messages to fetch, first message cid match reference returning...:", reference)
+        if(reference == null){
+          appendNewMessages(fetchedMessages.reverse());
+        }else{
+          appendOldMessages(fetchedMessages.reverse());
+        }
+        addMessagesToCache(chatId, fetchedMessages).then(() => {
+          reactions.map((reaction: {emoji: string, from: string, reference: string}) => {
+            addOrRemoveReaction(reaction.emoji, reaction.from, reaction.reference)
+            console.log("UPDATING REACTION IN CACHE FROM FETCH HISTORY 1")
+            updateReactionInCache(chatId, reaction.reference, reaction.emoji, reaction.from)
+          })
+        });
+        return [false, null, null]
+      }else{
+        console.log("update last read message cid after while loop of fetch finishes.", pushMsg.cid)
+      }
 
       if(pushMsg.messageType == 'Reaction'){
-        console.log("THIS IS A REACTION FETCHED FROM PUSH")
-        console.log("reaction: ", pushMsg.messageContent)
-        console.log("reference: ", pushMsg.messageObj.reference)
         reactions.push({emoji: pushMsg.messageContent, from: from, reference: pushMsg.messageObj.reference})
-        // addOrRemoveReaction(pushMsg.messageContent, from, pushMsg.messageObj.reference)
-        // cache2.updateReactions(pushMsg.messageContent, from, pushMsg.messageObj.reference)
       }else{
-        // let content: Content | ReferenceContent = { type: pushMsg.messageType, content: pushMsg.messageContent }
         let content: Content | ReferenceContent = { type: pushMsg.messageType, content: pushMsg.messageObj.content }
         let reply: Reply | null = null
         if(pushMsg.messageType == 'Reply'){
-          console.log("THIS IS A REPLY FETCHED FROM PUSH")
           const foundMessage: any = await this.api!.chat.history(chatId, {reference: pushMsg.messageObj.reference, limit: 1})
-          console.log("reply message: ", pushMsg)
 
           content = {
             type: pushMsg.messageType,
@@ -402,24 +412,12 @@ export class Push {
             replyContent = foundMessage[0]!.messageObj.content.messageObj.content
           }
 
-          console.log("message content: ", pushMsg)
-
           reply = {
             from: replyFrom,
             message: replyContent,
             reference: pushMsg.messageObj.reference
           }
 
-
-          // reply = {
-          //   from: findElement[0]!.from,
-          //   message: findElement[0]!.messageObj.content, 
-          //   reference: pushMsg.messageObj.reference 
-          // }
-
-        }else{
-          console.log("FETCHED MESSAGE NOT REPLY OR REACTION")
-          console.log("message: ", pushMsg)
         }
         const message: Message = {
           id: randomId,
@@ -434,18 +432,41 @@ export class Push {
           reply: reply,
           reactions: {}
         }
-        // cache2.addMessage(message)
-        fetchedMessages.push(message)
-      }
+        if(pushMsg.cid != history[0].cid && pushMsg.cid == reference){
+          console.log("DONE LOADING NEW MESSAGES 2 returning...: ", pushMsg.cid, reference)
+          // appendOldMessages(fetchedMessages.reverse());
+          if(reference == null){
+            appendNewMessages(fetchedMessages.reverse());
+          }else{
+            appendOldMessages(fetchedMessages.reverse());
+          }
+          if(fetchedMessages.length > 0){
+            addMessagesToCache(chatId, fetchedMessages).then(() => {
+              reactions.map((reaction: {emoji: string, from: string, reference: string}) => {
+                addOrRemoveReaction(reaction.emoji, reaction.from, reaction.reference)
+                updateReactionInCache(chatId, reaction.reference, reaction.emoji, reaction.from)
+              })
+            });
+          }
+          return [false, null, null]
+        }else
+          fetchedMessages.push(message)
+        }
     }
 
-    console.log("reference before return: " + cid)
-    console.log("FETCHED MESSAGES with true: ", fetchedMessages)
-    appendNewMessages(fetchedMessages)
-    reactions.map((reaction: {emoji: string, from: string, reference: string}) => {
-      addOrRemoveReaction(reaction.emoji, reaction.from, reaction.reference)
-    })
-    console.log("BEFORE RETURN ELSE")
+    // appendOldMessages(fetchedMessages.reverse());
+    if(reference == null){
+      appendNewMessages(fetchedMessages.reverse());
+    }else{
+      appendOldMessages(fetchedMessages.reverse());
+    }
+    addMessagesToCache(chatId, fetchedMessages).then(() => {
+      reactions.map((reaction: {emoji: string, from: string, reference: string}) => {
+        addOrRemoveReaction(reaction.emoji, reaction.from, reaction.reference)
+        updateReactionInCache(chatId, reaction.reference, reaction.emoji, reaction.from)
+      })
+    });
+    console.log("FETCHED ALL MESSAGES, returning true for more to load.", cid, lastReadCid)
     return [true, cid, lastReadCid]
   }
 
@@ -455,38 +476,35 @@ export class Push {
     let success = false
     let lastRef: string = ''
     let cid: string | null = null
-    let lastReadCid: string = ''
+    // let lastReadCid: string = ''
     // const c = await cache2.fetchChannel(chatId);
     // console.log("CHANNEL before fetching push messages: ", c)
     while(true){
-      console.log("NEW FETCH HISTORY: chatid: " + chatId + ", reference: " + reference);
-      console.log("LAST READ CID: before fetch: ", lastReadCid);
+      // call get history for first time with null reference to get latest messages
       [success, reference, cid] = await this.getHistory(chatId, reference);
-      console.log("AFTER FETCH HISTORY: RESSULTS: success: " + success + ", reference: ", reference + ", cid: " + cid);
+
+      // if cid is not null then set last read cid
       if(cid != null){
         console.log("last read cid is not null: ", cid);
-        lastReadCid = cid;
+      //   lastReadCid = cid;
       }
+      
+      // if not successful then break loop to stop fetch
       if(!success){
-        // new channel and no messages sent yet
-        if(lastReadCid != ''){
-          console.log("Setting last read cid 1: ", lastReadCid);
-          // cache2.updateLastReadMessageCid(chatId, lastReadCid);
-        }
         break
       }
+
+      // if last reference is same as current reference then break loop to stop fetch
+      // else set lastRef to current reference for next loop comparison
       if(lastRef == reference){
-        console.log("CANT LOAD ANY MORE MESSAGES: " + count);
-        if(lastReadCid != ''){
-          console.log("Setting last read cid 2: ", lastReadCid);
-          // cache2.updateLastReadMessageCid(chatId, lastReadCid);
-        }
         break
       }else{
         if(reference != null){
           lastRef = reference
         }
       }
+
+      // only allow max 20 fetch loops
       if(count > 20){
         // cache2.updateLastReadMessageCid(chatId, lastReadCid)
         break
@@ -495,8 +513,6 @@ export class Push {
       }
     }
   }
-
-
 }
 
 export const push = new Push;

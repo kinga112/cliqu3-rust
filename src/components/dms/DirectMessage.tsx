@@ -1,23 +1,23 @@
-import { useEffect, useRef, useState } from "react"
-import { useDirectMessageStore } from "../../state-management/dmStore"
-import { useGlobalStore } from "../../state-management/globalStore"
-import { useServerStore } from "../../state-management/serverStore"
-import { useUserStore } from "../../state-management/userStore"
-import { Messages } from "../server/Messages"
-import { push } from "../../push"
-import { BottomBar } from "../server/channel/BottomBar"
+import { useEffect, useState } from "react";
+import { useDirectMessageStore } from "../../state-management/dmStore";
+// import { useGlobalStore } from "../../state-management/globalStore"
+import { useServerStore } from "../../state-management/serverStore";
+// import { useUserStore } from "../../state-management/userStore"
+import { Messages } from "../server/Messages";
+import { push } from "../../push";
+import { BottomBar } from "../server/channel/BottomBar";
 
-export function DirectMessage(){
-// function DirectMessage(props: { recipient: { address: string, name: string | null, desc: string | null, picture: string | null } }){
-  const userProfiles = useServerStore((server) => server.userProfiles)
+export function DirectMessage() {
+  // function DirectMessage(props: { recipient: { address: string, name: string | null, desc: string | null, picture: string | null } }){
+  // const userProfiles = useServerStore((server) => server.userProfiles);
   // const currentDM = useGlobalStore((globals) => globals.currentDM)
-  const currentDM = useDirectMessageStore((dm) => dm.currentDM)
-  const setCurrentDM = useDirectMessageStore(dm => dm.setCurrentDM)
-  const [participants, setParticipants] = useState<string[]>([])
+  const currentDM = useDirectMessageStore((dm) => dm.currentDM);
+  // const setCurrentDM = useDirectMessageStore(dm => dm.setCurrentDM)
+  const [participants, setParticipants] = useState<string[]>([]);
 
-  useEffect(() => {
-    fetchData()
-  }, [currentDM, userProfiles])
+  // useEffect(() => {
+  //   fetchData();
+  // }, [currentDM, userProfiles]);
 
   // useEffect(() => {
   //   if (videoData.incoming[0].status === VideoCallStatus.CONNECTED) {
@@ -44,22 +44,22 @@ export function DirectMessage(){
   // }, [videoData.incoming[0].stream]);
 
   // fetch chat info for DM participant list
-  async function fetchData(){
+  async function fetchData() {
     // maybe use wallets to get dm participant for no extra await time and api lookup
     // console.log("CURRENT DM IN FETCH DATA: ", currentDM?.wallets)
-    const dmInfo = await push.api!.chat.info(currentDM!)
+    const dmInfo = await push.api!.chat.info(currentDM!);
     // console.log("DM INFO: ", dmInfo)
     dmInfo?.participants.map((participant: string) => {
-      const user = push.api!.account.toLowerCase()!
-      const participantParsed = participant.split(':')[1].toLowerCase()!
-      if(participantParsed != user){
-        if(!participants.includes(participantParsed)){
+      const user = push.api!.account.toLowerCase()!;
+      const participantParsed = participant.split(":")[1].toLowerCase()!;
+      if (participantParsed != user) {
+        if (!participants.includes(participantParsed)) {
           // console.log("PARTssss 1:", participants)
-          setParticipants([...participants, participantParsed])
+          setParticipants([...participants, participantParsed]);
         }
       }
-      console.log("profiles: ", userProfiles)
-    })
+      // console.log("profiles: ", userProfiles)
+    });
   }
 
   // async function callUser(){
@@ -88,12 +88,12 @@ export function DirectMessage(){
   //       console.log("STARTING CALL", callInit)
   //       // await callInit.request(['0xF06863EaD6A1c82Eb976E2b8E5754a5e15b3C46D'], {rules})
   //       // await callInit.request(['0xF06863EaD6A1c82Eb976E2b8E5754a5e15b3C46D'])
- 
+
   //       // user 1 0x6cbC0AF4e8b1022aFaB474A68FdAbaD670BD452D // bad request error when calling user 5 in request
-  //       // user 2 0xDEC4399dDb5655237Ee0cCBEe1B79273FDD3B465 
+  //       // user 2 0xDEC4399dDb5655237Ee0cCBEe1B79273FDD3B465
   //       // user 3 0xF06863EaD6A1c82Eb976E2b8E5754a5e15b3C46D // bad request error when joining call using aprove
   //       // user 4 0x81eC28eeB416ca22c518348b75Cd2f9DE4473fe9
-  //       // user 5 0x650d84DF6674822F7a61fDfE5387cE8486b03987 // 
+  //       // user 5 0x650d84DF6674822F7a61fDfE5387cE8486b03987 //
   //       await callInit.request(['0x81eC28eeB416ca22c518348b75Cd2f9DE4473fe9'])
   //       // await callInit.request(['0x650d84DF6674822F7a61fDfE5387cE8486b03987'], {rules})
   //       // console.log("VIDEO DATA 1:", videoData)
@@ -109,7 +109,6 @@ export function DirectMessage(){
   //     }
   //   }
   // }
-
 
   // stream!.on(CONSTANTS.STREAM.VIDEO, async (data: TYPES.VIDEO.EVENT) => {
   //   // console.log("VIDEO EVENT IS OCCURING IN DM!")
@@ -127,17 +126,25 @@ export function DirectMessage(){
   //   // }
   // })
 
-  const participantNames = participants.map((participant: string) => {
-    // console.log("part in map: ", participant)
-    if(userProfiles[participant]){
-      // console.log("LEN: ", participant.length, userProfiles)
-      // console.log("profiles: ", userProfiles)
-      // console.log("PART NAME: ", participant)
-      return <div className="flex place-items-center gap-2"><img className="h-10 w-10 rounded-md shrink-0 object-cover select-none" src={userProfiles[participant].picture!}/>{userProfiles[participant].name!}</div>
-    }else{
-      return <div/>
-    }
-  })
+  // const participantNames = participants.map((participant: string) => {
+  //   // console.log("part in map: ", participant)
+  //   if (userProfiles[participant]) {
+  //     // console.log("LEN: ", participant.length, userProfiles)
+  //     // console.log("profiles: ", userProfiles)
+  //     // console.log("PART NAME: ", participant)
+  //     return (
+  //       <div className="flex place-items-center gap-2">
+  //         <img
+  //           className="h-10 w-10 rounded-md shrink-0 object-cover select-none"
+  //           src={userProfiles[participant].picture!}
+  //         />
+  //         {userProfiles[participant].name!}
+  //       </div>
+  //     );
+  //   } else {
+  //     return <div />;
+  //   }
+  // });
 
   // function VideoModal(){
   //   // const stream = useCallStore((server) => server.stream)
@@ -150,8 +157,8 @@ export function DirectMessage(){
   //         <div className="fixed inset-0 flex w-screen items-center justify-center">
   //           <DialogPanel>
   //             <div className="flex gap-2 p-5 bg-deep-purple-100 rounded-lg">
-                // <VideoPlayer stream={videoData.local.stream} isMuted={true}/>
-                // <VideoPlayer stream={videoData.incoming[0].stream} isMuted={false} />
+  // <VideoPlayer stream={videoData.local.stream} isMuted={true}/>
+  // <VideoPlayer stream={videoData.incoming[0].stream} isMuted={false} />
   //             </div>
   //           </DialogPanel>
   //         </div>
@@ -160,7 +167,6 @@ export function DirectMessage(){
   //   )
   // }
 
-  
   // function VideoPlayer(props: {stream: MediaStream | null, isMuted: boolean}){
   //   const videoRef = useRef<HTMLVideoElement>(null);
   //   // const videoRef = useRef<any>(null);
@@ -178,17 +184,15 @@ export function DirectMessage(){
   //   // return <video className="w-[500px] h-[500px] border-2 rounded" ref={videoRef} muted={props.isMuted} autoPlay/>;
   // }
 
-  return(
+  return (
     <>
       <div className="flex flex-col overflow-hidden h-full w-full bg-off-black-500">
         <div className="flex w-full gap-2 h-14 border-b z-10 border-off-black-700 justify-start p-2 shadow-md shadow-off-black-700 place-items-center shrink-0 text-2xl font-extralight">
-          <div className="flex flex-grow">
-            {participantNames}
-          </div>
+          {/*<div className="flex flex-grow">{participantNames}</div>*/}
         </div>
-        <Messages/>
-        <BottomBar/>
+        <Messages />
+        <BottomBar />
       </div>
     </>
-  )
+  );
 }

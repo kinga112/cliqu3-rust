@@ -6,6 +6,12 @@ use tokio;
 pub mod app_state;
 pub mod iroh;
 pub mod call;
+pub mod cache;
+pub mod config;
+pub mod xmtp;
+pub mod walletconnect;
+pub mod temp_signer;
+pub mod walletconnect_test;
 use cliqu3_lib;
 
 #[tokio::main]
